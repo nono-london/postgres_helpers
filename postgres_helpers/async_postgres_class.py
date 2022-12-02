@@ -98,7 +98,7 @@ class AsyncPostGresConnector:
         if close_connection:
             await self.close_connection()
         # https://www.postgresql.org/docs/current/protocol-message-formats.html
-        # parse and send numbe rof affected rows by query
+        # parse and send number of affected rows by query
         return int(result.split(" ")[-1])
 
 
