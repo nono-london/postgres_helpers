@@ -1,0 +1,14 @@
+.idea
+.venv
+venv
+*.csv
+
+/postgres_helpers/app_config_secret.py
+
+build
+# test related
+.pytest_cache
+*.pyc
+postgres_helpers.egg-info/*
+dist
+*.whl
