@@ -9,6 +9,7 @@ build
 # test related
 .pytest_cache
 *.pyc
+.eggs
 postgres_helpers.egg-info/*
 dist
 *.whl

@@ -99,7 +99,15 @@ class AsyncPostGresConnector:
             await self.close_connection()
         # https://www.postgresql.org/docs/current/protocol-message-formats.html
         # parse and send number of affected rows by query
-        return int(result.split(" ")[-1])
+
+        affected_rows: int = -1
+        try:
+            affected_rows = int(result.split(" ")[-1])
+        except ValueError as ex:
+            print(f"Result of query was: {result}\n"
+                  f"Error was: {ex}")
+
+        return affected_rows
 
 
 if __name__ == '__main__':
