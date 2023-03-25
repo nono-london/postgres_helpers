@@ -61,7 +61,7 @@ class AsyncPostGresConnector:
         if await self.open_connection() is False:
             return None
         if sql_variables:
-            results = await self.mdb_connection.fetch(sql_query, *sql_variables)
+            results = await self.mdb_connection.fetch(sql_query, *sql_variables,)
         else:
             results = await self.mdb_connection.fetch(sql_query)
         result_df: pd.DataFrame = pd.DataFrame([dict(r.items()) for r in results])
