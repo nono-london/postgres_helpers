@@ -21,7 +21,7 @@ class PostGresConnector:
     def __init__(self, db_host: str = POSTGRES_DB_HOST, db_port: int = POSTGRES_DP_PORT,
                  db_user: str = POSTGRES_DB_USER, db_password: str = POSTGRES_DB_PASS,
                  db_database_name: str = POSTGRES_DB_NAME,
-                 connect_timeout: int = 600):
+                 connect_timeout: int = 6):
         self.db_host: str = db_host
         self.db_port: int = db_port
         self.db_username: str = db_user
