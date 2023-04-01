@@ -20,7 +20,8 @@ class PostGresConnector:
 
     def __init__(self, db_host: str = POSTGRES_DB_HOST, db_port: int = POSTGRES_DP_PORT,
                  db_user: str = POSTGRES_DB_USER, db_password: str = POSTGRES_DB_PASS,
-                 db_database_name: str = POSTGRES_DB_NAME):
+                 db_database_name: str = POSTGRES_DB_NAME,
+                 connect_timeout: int = 600):
         self.db_host: str = db_host
         self.db_port: int = db_port
         self.db_username: str = db_user
@@ -28,6 +29,7 @@ class PostGresConnector:
         self.db_database_name: str = db_database_name
         self.db_connection: Union[connection, None] = None
         self.db_version: Union[str, None] = None
+        self.connect_timeout: int = connect_timeout
 
     def open_connection(self) -> bool:
         # check if there is an existing connection which is already opened
@@ -39,7 +41,8 @@ class PostGresConnector:
                                                   port=self.db_port,
                                                   database=self.db_database_name,
                                                   user=self.db_username,
-                                                  password=self.db_password)
+                                                  password=self.db_password,
+                                                  connect_timeout=self.connect_timeout)
             # allowing autocommit so that when sql error, no need to close conn or rollback
             self.db_connection.autocommit = True
             return True
