@@ -293,7 +293,13 @@ class PostGresConnector:
 
         self.open_connection()
         db_cursor = self.db_connection.cursor()
-        db_cursor.execute(query, parameters_tuple)
+        try:
+            db_cursor.execute(query, parameters_tuple)
+        except Exception as ex:
+            print(db_cursor.query)
+            raise ex
+
+
         updated_rows = db_cursor.rowcount
         self.db_connection.commit()
         db_cursor.close()
