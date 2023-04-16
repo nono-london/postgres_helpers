@@ -3,6 +3,8 @@
 venv
 *.csv
 
+
+.env
 /postgres_helpers/app_config_secret.py
 
 build

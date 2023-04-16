@@ -1,5 +1,6 @@
 """ lib to use Postgresql Libs"""
-from typing import Union, Optional
+from os import environ
+from typing import (Union, Optional, List, Tuple)
 
 # https://zetcode.com/python/psycopg2/
 # https://pynative.com/python-postgresql-tutorial/
@@ -10,23 +11,25 @@ from psycopg2 import Error
 from psycopg2.errors import UniqueViolation
 from psycopg2.extensions import connection
 
-from postgres_helpers.app_config_secret import (POSTGRES_DB_USER, POSTGRES_DB_HOST,
-                                                POSTGRES_DB_PASS, POSTGRES_DB_NAME,
-                                                POSTGRES_DP_PORT)
+from postgres_helpers.app_config import load_postgres_details_to_env
 
 
-class PostGresConnector:
+class PostgresConnector:
     """ Class to handle Postgresql """
 
-    def __init__(self, db_host: str = POSTGRES_DB_HOST, db_port: int = POSTGRES_DP_PORT,
-                 db_user: str = POSTGRES_DB_USER, db_password: str = POSTGRES_DB_PASS,
-                 db_database_name: str = POSTGRES_DB_NAME,
+    def __init__(self, db_host: Optional[str] = None, db_port: Optional[str] = None,
+                 db_user: Optional[str] = None, db_password: Optional[str] = None,
+                 db_name: Optional[str] = None,
                  connect_timeout: int = 6):
-        self.db_host: str = db_host
-        self.db_port: int = db_port
-        self.db_username: str = db_user
-        self.db_password: str = db_password
-        self.db_database_name: str = db_database_name
+
+        load_postgres_details_to_env()
+
+        self.db_host = environ['POSTGRES_DB_HOST'] if db_host is None else db_host
+        self.db_port = environ['POSTGRES_DB_PORT'] if db_port is None else str(db_port)
+        self.db_user: str = environ['POSTGRES_DB_USER'] if db_user is None else db_user
+        self.db_password: str = environ['POSTGRES_DB_PASS'] if db_password is None else db_password
+        self.db_name: str = environ['POSTGRES_DB_NAME'] if db_name is None else db_name
+
         self.db_connection: Union[connection, None] = None
         self.db_version: Union[str, None] = None
         self.connect_timeout: int = connect_timeout
@@ -39,8 +42,8 @@ class PostGresConnector:
         try:
             self.db_connection = psycopg2.connect(host=self.db_host,
                                                   port=self.db_port,
-                                                  database=self.db_database_name,
-                                                  user=self.db_username,
+                                                  database=self.db_name,
+                                                  user=self.db_user,
                                                   password=self.db_password,
                                                   connect_timeout=self.connect_timeout)
             # allowing autocommit so that when sql error, no need to close conn or rollback
@@ -64,7 +67,7 @@ class PostGresConnector:
         return False
 
     def get_postgresql_version(self) -> str:
-        result = self.fetch_all_as_dict_list('SELECT version()', )
+        result = self.fetch_all_as_dicts('SELECT version()', )
         self.db_version = result[0]['version'].split(',')[0].strip()
         print(f"Connected to Postgres version: {self.db_version}")
         return self.db_version
@@ -72,7 +75,7 @@ class PostGresConnector:
     def execute_one_query(self, sql_query: str,
                           sql_variables: tuple = None,
                           return_last_inserted_id: bool = False,
-                          close_connection_after: bool = True,
+                          close_connection: bool = True,
                           ) -> tuple:
         """return a tuple of (last_inserted_row_id, rows_affected, status_message)
         rows_affected return -1 if SQL error: duplicate key etc., 0 if nothing changed, # of records affected
@@ -110,7 +113,7 @@ class PostGresConnector:
 
         db_cursor.close()
 
-        if close_connection_after:
+        if close_connection:
             self.close_connection()
 
         return last_row_id, rows_affected, status_message
@@ -136,8 +139,8 @@ class PostGresConnector:
 
         return rows_affected, status_message
 
-    def fetch_all_as_dict_list(self, sql_query: str, sql_variables: tuple = None,
-                               close_connection_after: bool = True) -> list:
+    def fetch_all_as_dicts(self, sql_query: str, sql_variables: tuple = None,
+                           close_connection_after: bool = True) -> List[Tuple]:
 
         self.open_connection()
 
@@ -153,16 +156,16 @@ class PostGresConnector:
         return rows_found
 
     def fetch_all_as_df(self, sql_query: str, sql_variables: tuple = None,
-                        close_connection_after: bool = True):
+                        close_connection: bool = True) -> Union[None, pd.DataFrame]:
 
         self.open_connection()
         # https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.read_sql.html
-        results: list = self.fetch_all_as_dict_list(sql_query=sql_query,
-                                                    sql_variables=sql_variables)
+        results: list = self.fetch_all_as_dicts(sql_query=sql_query,
+                                                sql_variables=sql_variables)
 
         result_df: pd.DataFrame = pd.DataFrame(results, )
 
-        if close_connection_after:
+        if close_connection:
             self.close_connection()
 
         return result_df
@@ -251,7 +254,7 @@ class PostGresConnector:
             db_cursor.close()
 
         except Exception as ex:
-            print(f"Error with insert in PostgreSQL:\n{ex}")
+            print(f"Error with insert in Postgres:\n{ex}")
             print(f"Parameters used are:\n{parameters_tuple}")
             print(f"Query is:\n{query}")
 
@@ -299,7 +302,6 @@ class PostGresConnector:
             print(db_cursor.query)
             raise ex
 
-
         updated_rows = db_cursor.rowcount
         self.db_connection.commit()
         db_cursor.close()
@@ -311,4 +313,10 @@ class PostGresConnector:
 
 
 if __name__ == '__main__':
-    pass
+    my_postgres = PostgresConnector()
+    sql_string = """
+        SELECT version()
+    """
+    my_results = my_postgres.fetch_all_as_dicts(sql_query=sql_string, close_connection_after=True)
+    my_postgres.close_connection()
+    print(my_results)
