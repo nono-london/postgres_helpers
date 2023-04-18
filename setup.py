@@ -3,7 +3,7 @@ from setuptools import find_packages, setup
 setup(
     name="postgres_helpers",
     packages=find_packages(),
-    version="0.0.2",
+    version="0.0.3",
     description="PostgresSQL Connection Helper in Async and Sync modes",
     author="Nono London",
     author_email="",

@@ -36,9 +36,9 @@ def load_config_secret_vars() -> bool:
     if not config_secret_path.exists():
         print(f"No app_config_secret.py file found for path: {config_secret_path}")
         return False
-    from app_config_secret import (POSTGRES_DB_HOST, POSTGRES_DB_USER,
-                                   POSTGRES_DB_PASS, POSTGRES_DB_NAME,
-                                   POSTGRES_DB_PORT)
+    from postgres_helpers.app_config_secret import (POSTGRES_DB_HOST, POSTGRES_DB_USER,
+                                                    POSTGRES_DB_PASS, POSTGRES_DB_NAME,
+                                                    POSTGRES_DB_PORT)
 
     environ['POSTGRES_DB_HOST'] = POSTGRES_DB_HOST
     environ['POSTGRES_DB_USER'] = POSTGRES_DB_USER
@@ -64,6 +64,7 @@ def load_postgres_details_to_env() -> Union[None, bool]:
 
 
 if __name__ == '__main__':
-    print(get_project_root_path())
+    # print(get_project_root_path())
 
-    load_postgres_details_to_env()
+    # load_postgres_details_to_env()
+    load_config_secret_vars()
