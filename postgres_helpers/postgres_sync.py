@@ -21,8 +21,8 @@ class PostgresConnector:
                  db_user: Optional[str] = None, db_password: Optional[str] = None,
                  db_name: Optional[str] = None,
                  connect_timeout: int = 6):
-
-        load_postgres_details_to_env()
+        if None in [db_host, db_port, db_name, db_user, db_password, ]:
+            load_postgres_details_to_env()
 
         self.db_host = environ['POSTGRES_DB_HOST'] if db_host is None else db_host
         self.db_port = environ['POSTGRES_DB_PORT'] if db_port is None else str(db_port)
