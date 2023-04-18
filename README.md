@@ -45,4 +45,11 @@ purpose of the library is to handle sync and async calls to Postgresql database
     ```
     git restore --staged .
     ```
+* create tags/versions on GitHub
+    ```
+    git tag <version_number>
+    git push origin <version_number>
+
+    ```
+ 
   
