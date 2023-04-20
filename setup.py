@@ -11,6 +11,7 @@ setup(
     license="MIT",
     install_requires=["psycopg2",
                       "asyncpg",
+                      "python-dotenv",
                       "pandas"],
     setup_requires=["pytest-runner"],
     tests_require=["pytest"],
