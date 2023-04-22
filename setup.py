@@ -1,5 +1,5 @@
 from setuptools import find_packages, setup
-
+import platform
 setup(
     name="postgres_helpers",
     packages=find_packages(),
@@ -9,11 +9,19 @@ setup(
     author_email="",
     url="https://github.com/nono-london/postgres_helpers",
     license="MIT",
-    install_requires=["psycopg2",
-                      "asyncpg",
+    install_requires=["asyncpg",
                       "python-dotenv",
                       "pandas"],
     setup_requires=["pytest-runner"],
     tests_require=["pytest"],
     test_suite="tests",
 )
+
+if platform.system() == 'Linux':
+    setup(
+        install_requires=["psycopg2-binary"]
+    )
+else:
+    setup(
+        install_requires=["psycopg2"]
+    )
