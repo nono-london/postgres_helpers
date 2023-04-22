@@ -17,11 +17,7 @@ setup(
     test_suite="tests",
 )
 
-if platform.system() == 'Linux':
-    setup(
-        install_requires=["psycopg2-binary"]
-    )
-else:
+if platform.system() != 'Linux':
     setup(
         install_requires=["psycopg2"]
     )
