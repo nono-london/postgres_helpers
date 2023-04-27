@@ -140,7 +140,7 @@ class PostgresConnector:
         return rows_affected, status_message
 
     def fetch_all_as_dicts(self, sql_query: str, sql_variables: tuple = None,
-                           close_connection_after: bool = True) -> List[Tuple]:
+                           close_connection: bool = True) -> List[Tuple]:
 
         self.open_connection()
 
@@ -150,7 +150,7 @@ class PostgresConnector:
         rows_found = db_cursor.fetchall()
         db_cursor.close()
 
-        if close_connection_after:
+        if close_connection:
             self.close_connection()
 
         return rows_found
@@ -317,6 +317,6 @@ if __name__ == '__main__':
     sql_string = """
         SELECT version()
     """
-    my_results = my_postgres.fetch_all_as_dicts(sql_query=sql_string, close_connection_after=True)
+    my_results = my_postgres.fetch_all_as_dicts(sql_query=sql_string, close_connection=True)
     my_postgres.close_connection()
     print(my_results)
