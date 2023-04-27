@@ -3,7 +3,7 @@ import platform
 setup(
     name="postgres_helpers",
     packages=find_packages(),
-    version="0.0.3",
+    version="0.0.3.1",
     description="PostgresSQL Connection Helper in Async and Sync modes",
     author="Nono London",
     author_email="",
