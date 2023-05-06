@@ -1,23 +1,24 @@
-from setuptools import find_packages, setup
-import platform
-setup(
+import setuptools
+
+with open("README.md", "r") as fh:
+    long_description = fh.read()
+
+setuptools.setup(
     name="postgres_helpers",
-    packages=find_packages(),
-    version="0.0.3.1",
-    description="PostgresSQL Connection Helper in Async and Sync modes",
+    version="0.0.3.1.1",
     author="Nono London",
     author_email="",
+    description="PostgresSQL Connection Helper in Async and Sync modes",
+    long_description=long_description,
+    long_description_content_type="text/markdown",
     url="https://github.com/nono-london/postgres_helpers",
-    license="MIT",
-    install_requires=["asyncpg",
-                      "python-dotenv",
-                      "pandas"],
-    setup_requires=["pytest-runner"],
+    packages=["postgres_helpers"],
+    classifiers=[
+        "Programming Language :: Python :: 3",
+        "License :: OSI Approved :: MIT License",
+        "Operating System :: OS Independent",
+    ],
+    install_requires=["asyncpg", "python-dotenv", "pandas"],
     tests_require=["pytest"],
-    test_suite="tests",
+    python_requires='>=3.6',
 )
-
-if platform.system() != 'Linux':
-    setup(
-        install_requires=["psycopg2"]
-    )
