@@ -71,6 +71,21 @@ class PostgresConnectorAsync:
 
         return affected_rows
 
+    async def execute_many_query(self, sql_query: str, tuples_list: list) -> tuple:
+        """Return a tuple of (rows_affected, status_message)
+            tuples_list is a list of parameters as tuples
+            the query will fail if there is an SQL error, not using try/except
+
+        """
+        async with self.db_connection_pool.acquire() as conn:
+            db_cursor = conn.cursor()
+            db_cursor.executemany(sql_query, tuples_list)
+            rows_affected = db_cursor.rowcount
+            status_message = db_cursor.statusmessage
+            db_cursor.close()
+
+        return rows_affected, status_message
+
     async def fetch_all_as_df(self, sql_query: str,
                               sql_variables: tuple = None) -> Union[None, pd.DataFrame]:
         """Fetch query data in a pd Dataframe"""
