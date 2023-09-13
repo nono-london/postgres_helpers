@@ -1,6 +1,6 @@
 # https://magicstack.github.io/asyncpg/current/api/index.html
 import asyncio
-from os import environ
+from os import getenv
 from typing import (Union, Optional, List, Dict)
 
 import asyncpg
@@ -23,11 +23,11 @@ class PostgresConnectorAsync:
         if None in [db_host, db_port, db_name, db_user, db_password, ]:
             load_postgres_details_to_env()
 
-        self.db_host = environ['POSTGRES_DB_HOST'] if db_host is None else db_host
-        self.db_port = environ['POSTGRES_DB_PORT'] if db_port is None else str(db_port)
-        self.db_user: str = environ['POSTGRES_DB_USER'] if db_user is None else db_user
-        self.db_password: str = environ['POSTGRES_DB_PASS'] if db_password is None else db_password
-        self.db_name: str = environ['POSTGRES_DB_NAME'] if db_name is None else db_name
+        self.db_host = getenv('POSTGRES_DB_HOST') if db_host is None else db_host
+        self.db_port = getenv('POSTGRES_DB_PORT') if db_port is None else str(db_port)
+        self.db_user: str = getenv('POSTGRES_DB_USER') if db_user is None else db_user
+        self.db_password: str = getenv('POSTGRES_DB_PASS') if db_password is None else db_password
+        self.db_name: str = getenv('POSTGRES_DB_NAME') if db_name is None else db_name
 
         self.pool_size_max: int = pool_size_max
 
@@ -51,8 +51,7 @@ class PostgresConnectorAsync:
             return False
 
     async def execute_one_query(self, sql_query: str,
-                                sql_variables: tuple = None,
-                                close_connection: bool = True) -> Union[None, int]:
+                                sql_variables: tuple = None) -> Union[None, int]:
         """Fetch query data in a pd Dataframe"""
         with self.db_connection_pool.acquire() as conn:
             if sql_variables is None:
@@ -78,19 +77,21 @@ class PostgresConnectorAsync:
 
         with self.db_connection_pool.acquire() as conn:
             if sql_variables is None:
-                results = await conn.fetch(sql_query,)
+                results = await conn.fetch(sql_query, )
             else:
-                results = await conn.fetch(sql_query, *sql_variables )
+                results = await conn.fetch(sql_query, *sql_variables)
 
         result_df: pd.DataFrame = pd.DataFrame([dict(r.items()) for r in results])
 
         return result_df
 
     async def fetch_all_as_dicts(self, sql_query: str,
-                                 sql_variables: tuple = None) -> Union[None, List[Dict]]:
+                                 sql_variables: Optional[tuple] = None) -> Union[None, List[Dict]]:
         """Fetch query data in a list of dicts
         :param sql_query: a sql statement
         :type sql_query: str
+        :param sql_variables: a tuple with variables
+        :type sql_variables: tuple
         :returns: a list of dicts
         :rtype: List[Dict]
         """
