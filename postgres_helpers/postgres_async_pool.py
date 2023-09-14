@@ -13,7 +13,7 @@ from postgres_helpers.app_config import load_postgres_details_to_env
 # to create async class
 # https://bbc.github.io/cloudfit-public-docs/asyncio/asyncio-part-3.html
 
-class PostgresConnectorAsync:
+class PostgresConnectorAsyncPool:
     def __init__(self, pool_size_max: int = 30,
                  db_host: Optional[str] = None, db_port: Optional[str] = None,
                  db_user: Optional[str] = None, db_password: Optional[str] = None,
@@ -124,7 +124,7 @@ if __name__ == '__main__':
     sql_string = """
         SELECT version()
     """
-    my_postgres = PostgresConnectorAsync()
+    my_postgres = PostgresConnectorAsyncPool()
     my_results = asyncio.get_event_loop().run_until_complete(
         my_postgres.fetch_all_as_dicts(sql_query=sql_string))
 
