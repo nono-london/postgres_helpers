@@ -32,7 +32,12 @@ class PostgresConnectorAsyncPool:
         self.pool_size_max: int = pool_size_max
 
         self.db_connection_pool: Union[Pool, None] = None
-        asyncio.get_event_loop().run_until_complete(self._create_pool_connection())
+        try:
+            # if part of multithread/tasks favor using get_running_loop
+            # hopefully this steers away the need for use of nest_asyncio
+            asyncio.get_running_loop().run_until_complete(self._create_pool_connection())
+        except RuntimeError:
+            asyncio.get_event_loop().run_until_complete(self._create_pool_connection())
 
     async def _create_pool_connection(self) -> bool:
         """Returns True if successfully connected to mdb"""
