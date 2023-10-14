@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="postgres_helpers",
-    version="0.0.3.1.1",
+    version="0.0.3.2",
     author="Nono London",
     author_email="",
     description="PostgresSQL Connection Helper in Async and Sync modes",
@@ -20,5 +20,5 @@ setuptools.setup(
     ],
     install_requires=["asyncpg", "python-dotenv", "pandas"],
     tests_require=["pytest"],
-    python_requires='>=3.6',
+    python_requires='>=3.9',
 )
