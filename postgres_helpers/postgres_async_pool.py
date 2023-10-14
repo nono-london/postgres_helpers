@@ -88,9 +88,16 @@ class PostgresConnectorAsyncPool:
 
     async def fetch_all_as_df(self, sql_query: str,
                               sql_variables: tuple = None) -> Union[None, pd.DataFrame]:
-        """Fetch query data in a pd Dataframe"""
+        """Fetch query data in a pd Dataframe
+        :param sql_query: a sql statement
+        :type sql_query: str
+        :param sql_variables: a tuple with variables
+        :type sql_variables: tuple
+        :returns: a pd.Dataframe of the results
+        :rtype: pd.Dataframe
+        """
 
-        with self.db_connection_pool.acquire() as conn:
+        async with self.db_connection_pool.acquire() as conn:
             if sql_variables is None:
                 results = await conn.fetch(sql_query, )
             else:
@@ -126,6 +133,6 @@ if __name__ == '__main__':
     """
     my_postgres = PostgresConnectorAsyncPool()
     my_results = asyncio.get_event_loop().run_until_complete(
-        my_postgres.fetch_all_as_dicts(sql_query=sql_string))
+        my_postgres.fetch_all_as_df(sql_query=sql_string))
 
     print(my_results)
