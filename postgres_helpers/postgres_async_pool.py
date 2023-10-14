@@ -53,7 +53,7 @@ class PostgresConnectorAsyncPool:
     async def execute_one_query(self, sql_query: str,
                                 sql_variables: tuple = None) -> Union[None, int]:
         """Fetch query data in a pd Dataframe"""
-        with self.db_connection_pool.acquire() as conn:
+        async with self.db_connection_pool.acquire() as conn:
             if sql_variables is None:
                 result: str = await conn.execute(sql_query)
             else:
