@@ -14,7 +14,7 @@ purpose of the library is to handle sync and async calls to Postgresql database
   ```
   python -m venv .venv
   ```
-* instal requirements
+* install requirements
   ```
   pip install -r requirements.txt
   ```
