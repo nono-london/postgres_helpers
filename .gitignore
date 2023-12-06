@@ -1,17 +1,21 @@
+# IDE
 .idea
+# Venvs
 .venv
 venv
+# files
 *.csv
 
-
+# Secrets
 .env
 /postgres_helpers/app_config_secret.py
 
+# Prod
 build
-# test related
+
+# Tests
 .pytest_cache
 *.pyc
 .eggs
-postgres_helpers.egg-info/*
+postgres_helpers.egg-info
 dist
-*.whl
