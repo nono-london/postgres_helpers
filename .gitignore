@@ -5,7 +5,7 @@
 venv
 # files
 *.csv
-
+**/downloads/*
 # Secrets
 .env
 /postgres_helpers/app_config_secret.py
