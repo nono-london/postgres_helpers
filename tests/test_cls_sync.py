@@ -1,4 +1,6 @@
 from postgres_helpers.postgres_sync import PostgresConnector
+from postgres_helpers.app_config import logging_config
+logging_config()
 
 
 def test_connector():

@@ -1,7 +1,7 @@
 import asyncio
-
 from postgres_helpers.postgres_async import PostgresConnectorAsync
-
+from postgres_helpers.app_config import logging_config
+logging_config()
 
 def test_async_fetch():
     sql_string = """

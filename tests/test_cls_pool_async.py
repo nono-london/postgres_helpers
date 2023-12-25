@@ -1,6 +1,8 @@
 import asyncio
 
 from postgres_helpers.postgres_async_pool import PostgresConnectorAsyncPool
+from postgres_helpers.app_config import logging_config
+logging_config()
 
 
 def test_pool_async_dicts():
