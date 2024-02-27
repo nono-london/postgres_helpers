@@ -1,10 +1,10 @@
-from postgres_helpers.postgres_sync import PostgresConnector
 from postgres_helpers.app_config import logging_config
+from postgres_helpers.postgres_sync import PostgresConnector
+
 logging_config()
 
 
 def test_connector():
-
     my_postgres = PostgresConnector()
     sql_string = """
         SELECT version()
