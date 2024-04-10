@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="postgres_helpers",
-    version="0.0.3.6",
+    version="0.0.3.7",
     author="Nono London",
     author_email="",
     description="PostgresSQL Connection Helper in Async, Sync and Pool modes",
