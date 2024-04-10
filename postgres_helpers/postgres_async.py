@@ -27,6 +27,7 @@ class PostgresConnectorAsync:
         db_user: Optional[str] = None,
         db_password: Optional[str] = None,
         db_name: Optional[str] = None,
+            application_name:Optional[str]=None
     ):
         if None in [
             db_host,
@@ -45,6 +46,9 @@ class PostgresConnectorAsync:
         )
         self.db_name: str = environ["POSTGRES_DB_NAME"] if db_name is None else db_name
 
+        # shows application name within PGAdmin4 fos instance
+        self.server_settings = {'application_name':application_name} if application_name else None
+
         self.db_connection: Union[Connection, None] = None
 
     async def open_connection(self) -> bool:
@@ -57,7 +61,9 @@ class PostgresConnectorAsync:
                     user=self.db_user,
                     password=self.db_password,
                     database=self.db_name,
+                    server_settings=self.server_settings if self.server_settings else None
                 )
+
                 return True
             except Exception as ex:
                 logger.error(f"Error while connecting PostgreSQL in Async: {ex}")
@@ -148,7 +154,9 @@ if __name__ == "__main__":
     """
     my_postgres = PostgresConnectorAsync()
     my_results = asyncio.get_event_loop().run_until_complete(
-        my_postgres.fetch_all_as_dicts(sql_query=sql_string, close_connection=True)
+        my_postgres.fetch_all_as_dicts(sql_query=sql_string,
+                                       close_connection=True)
     )
+
 
     print(my_results)
