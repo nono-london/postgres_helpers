@@ -1,10 +1,7 @@
-import logging
-from pathlib import Path
-
-logger = logging.getLogger(f"postgres_helpers:{Path(__file__).name}")
-
 import asyncio
+import logging
 from os import getenv
+from pathlib import Path
 from typing import Union, Optional, List, Dict
 
 import asyncpg
@@ -13,6 +10,8 @@ from asyncpg.pool import Pool
 
 from postgres_helpers.app_config import load_postgres_details_to_env
 
+logger = logging.getLogger(f"postgres_helpers:{Path(__file__).name}")
+
 
 # to create async class
 # https://bbc.github.io/cloudfit-public-docs/asyncio/asyncio-part-3.html
@@ -20,13 +19,17 @@ from postgres_helpers.app_config import load_postgres_details_to_env
 
 class PostgresConnectorAsyncPool:
     def __init__(
-        self,
-        pool_size_max: int = 30,
-        db_host: Optional[str] = None,
-        db_port: Optional[str] = None,
-        db_user: Optional[str] = None,
-        db_password: Optional[str] = None,
-        db_name: Optional[str] = None,
+            self,
+
+            pool_size_max: int = 30,
+            db_host: Optional[str] = None,
+            db_port: Optional[str] = None,
+            db_user: Optional[str] = None,
+            db_password: Optional[str] = None,
+            db_name: Optional[str] = None,
+            application_name: Optional[str] = None,
+            asyncio_loop=None
+
     ):
         if None in [
             db_host,
@@ -48,10 +51,17 @@ class PostgresConnectorAsyncPool:
         self.pool_size_max: int = pool_size_max
 
         self.db_connection_pool: Union[Pool, None] = None
+        # shows application name within PGAdmin4 fos instance
+        self.server_settings = {'application_name': application_name} if application_name else None
         try:
             # if part of multithread/tasks favor using get_running_loop
             # hopefully this steers away the need for use of nest_asyncio
-            asyncio.get_running_loop().run_until_complete(
+            if asyncio_loop:
+                loop = asyncio_loop
+            else:
+                loop = asyncio.get_running_loop()
+
+            loop.run_until_complete(
                 self._create_pool_connection()
             )
         except RuntimeError:
@@ -68,6 +78,7 @@ class PostgresConnectorAsyncPool:
                 password=self.db_password,
                 database=self.db_name,
                 max_size=self.pool_size_max,
+                server_settings=self.server_settings if self.server_settings else None
             )
             return True
         except Exception as ex:
@@ -75,7 +86,7 @@ class PostgresConnectorAsyncPool:
             return False
 
     async def execute_one_query(
-        self, sql_query: str, sql_variables: tuple = None
+            self, sql_query: str, sql_variables: tuple = None
     ) -> Union[None, int]:
         """Fetch query data in a pd Dataframe"""
         async with self.db_connection_pool.acquire() as conn:
@@ -111,7 +122,7 @@ class PostgresConnectorAsyncPool:
         return rows_affected, status_message
 
     async def fetch_all_as_df(
-        self, sql_query: str, sql_variables: tuple = None
+            self, sql_query: str, sql_variables: tuple = None
     ) -> Union[None, pd.DataFrame]:
         """Fetch query data in a pd Dataframe
         :param sql_query: a sql statement
@@ -135,7 +146,7 @@ class PostgresConnectorAsyncPool:
         return result_df
 
     async def fetch_all_as_dicts(
-        self, sql_query: str, sql_variables: Optional[tuple] = None
+            self, sql_query: str, sql_variables: Optional[tuple] = None
     ) -> Union[None, List[Dict]]:
         """Fetch query data in a list of dicts
         :param sql_query: a sql statement
@@ -161,8 +172,10 @@ if __name__ == "__main__":
     sql_string = """
         SELECT version()
     """
-    my_postgres = PostgresConnectorAsyncPool()
-    my_results = asyncio.get_event_loop().run_until_complete(
+    loop = asyncio.get_event_loop()
+    my_postgres = PostgresConnectorAsyncPool(asyncio_loop=loop,
+                                             application_name="test pool")
+    my_results = loop.run_until_complete(
         my_postgres.fetch_all_as_df(sql_query=sql_string)
     )
 
