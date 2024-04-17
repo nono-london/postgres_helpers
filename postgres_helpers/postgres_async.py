@@ -95,12 +95,10 @@ class PostgresConnectorAsync:
         # check that we have a connection, raise error if not
         await self.open_connection()
 
-        if sql_variables:
-            result: str = await self.db_connection.execute(sql_query, *sql_variables)
-        else:
-            result: str = await self.db_connection.execute(
-                sql_query,
-            )
+        result = await self.db_connection.execute(
+            sql_query,
+            *sql_variables if sql_variables else ()
+        )
 
         if close_connection:
             await self.close_connection()
