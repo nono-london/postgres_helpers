@@ -1,25 +1,50 @@
+import logging
+import platform
 from os import environ
 from pathlib import Path
-from typing import Union
-import logging
+from typing import (Union, Optional)
+
 from dotenv import load_dotenv
-import platform
 
 
-def logging_config():
-    if platform.system() == "Linux":
-        logging_folder = Path("/var", "log", "my_apps", "python", "postgres_helpers")
+def logging_config(log_file_name: Optional[str] = None,
+                   force_local_folder: bool = False,
+                   project_name: Optional[str] = None,
+                   log_level: int = logging.DEBUG):
+    """Create a basic logging file
+
+    Args:
+        log_file_name (Optional[str], optional): a file name ending with '.log' which will be stored in the log folder. Defaults to None.
+        force_local_folder (bool=False): ignore system parameter and save logs locals within the downloads folder
+        project_name (Optional[str]=None): names the logging folder, if ignored, uses the app name
+        log_level (int=logging.DEBUG): the log level
+
+    """
+    if not project_name:
+        project_name = get_project_root_path().name
+
+    # Handles folder to log into
+    if force_local_folder:
+        logging_folder = Path(get_project_root_path(), project_name, "downloads")
         logging_folder.mkdir(parents=True, exist_ok=True)
     else:
-        logging_folder = Path(get_project_root_path(), "postgres_helpers", "downloads")
-        logging_folder.mkdir(parents=True, exist_ok=True)
+        if platform.system() == 'Linux':
+            logging_folder = Path('/var', "log", "my_apps", "python", project_name, )
+            logging_folder.mkdir(parents=True, exist_ok=True)
+        else:
+            logging_folder = Path(get_project_root_path(), project_name, "downloads")
+            logging_folder.mkdir(parents=True, exist_ok=True)
+    # handles log file name
+    if log_file_name:
+        logging_file_path = Path(logging_folder, log_file_name)
+    else:
+        logging_file_path = Path(logging_folder, f'{project_name}.log')
 
-    logging_file_path = Path(logging_folder, "postgres_helpers.log")
     # Configure the root logger
     logging.basicConfig(
         filename=logging_file_path,  # Global log file name
-        level=logging.DEBUG,  # Global log level
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        level=log_level,  # Global log level
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
 
 
@@ -54,29 +79,6 @@ def load_dot_env_vars() -> bool:
     return True
 
 
-def load_config_secret_vars() -> bool:
-    config_secret_path = Path(
-        get_project_root_path(), "postgres_helpers", "app_config_secret.py"
-    )
-    if not config_secret_path.exists():
-        print(f"No app_config_secret.py file found for path: {config_secret_path}")
-        return False
-    from postgres_helpers.app_config_secret import (
-        POSTGRES_DB_HOST,
-        POSTGRES_DB_USER,
-        POSTGRES_DB_PASS,
-        POSTGRES_DB_NAME,
-        POSTGRES_DB_PORT,
-    )
-
-    environ["POSTGRES_DB_HOST"] = POSTGRES_DB_HOST
-    environ["POSTGRES_DB_USER"] = POSTGRES_DB_USER
-    environ["POSTGRES_DB_PASS"] = POSTGRES_DB_PASS
-    environ["POSTGRES_DB_NAME"] = POSTGRES_DB_NAME
-    environ["POSTGRES_DB_PORT"] = str(POSTGRES_DB_PORT)
-    return True
-
-
 def postgres_logins_in_environ() -> bool:
     """checks if logins details have been stored in environment"""
     postgres_logins = [
@@ -92,7 +94,7 @@ def postgres_logins_in_environ() -> bool:
 def load_postgres_details_to_env() -> Union[None, bool]:
     """This will first try and find logins details in environ, then in .env file then in app_secret"""
     if not (
-        postgres_logins_in_environ() or load_dot_env_vars() or load_config_secret_vars()
+            postgres_logins_in_environ() or load_dot_env_vars()
     ):
         raise Exception("No login details found to access Postgresql")
     else:
@@ -100,7 +102,6 @@ def load_postgres_details_to_env() -> Union[None, bool]:
 
 
 if __name__ == "__main__":
-    # print(get_project_root_path())
+    print(get_project_root_path())
 
-    # load_postgres_details_to_env()
-    load_config_secret_vars()
+    print(load_postgres_details_to_env())
