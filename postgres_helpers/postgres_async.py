@@ -21,13 +21,13 @@ from postgres_helpers.app_config import load_postgres_details_to_env
 
 class PostgresConnectorAsync:
     def __init__(
-        self,
-        db_host: Optional[str] = None,
-        db_port: Optional[str] = None,
-        db_user: Optional[str] = None,
-        db_password: Optional[str] = None,
-        db_name: Optional[str] = None,
-            application_name:Optional[str]=None
+            self,
+            db_host: Optional[str] = None,
+            db_port: Optional[str] = None,
+            db_user: Optional[str] = None,
+            db_password: Optional[str] = None,
+            db_name: Optional[str] = None,
+            application_name: Optional[str] = None
     ):
         if None in [
             db_host,
@@ -47,11 +47,11 @@ class PostgresConnectorAsync:
         self.db_name: str = environ["POSTGRES_DB_NAME"] if db_name is None else db_name
 
         # shows application name within PGAdmin4 fos instance
-        self.server_settings = {'application_name':application_name} if application_name else None
+        self.server_settings = {'application_name': application_name} if application_name else None
 
         self.db_connection: Union[Connection, None] = None
 
-    async def open_connection(self) -> bool:
+    async def open_connection(self):
         """Returns True if successfully connected to mdb"""
         if self.db_connection is None or self.db_connection.is_closed():
             try:
@@ -64,14 +64,9 @@ class PostgresConnectorAsync:
                     server_settings=self.server_settings if self.server_settings else None
                 )
 
-                return True
             except Exception as ex:
                 logger.error(f"Error while connecting PostgreSQL in Async: {ex}")
-                return False
-        elif self.db_connection.is_closed() is False:
-            return True
-        else:
-            return False
+                raise Exception(f"Error while connecting PostgreSQL in Async: {ex}")
 
     async def close_connection(self) -> bool:
         """Returns True if successfully disconnected from mdb"""
@@ -87,12 +82,19 @@ class PostgresConnectorAsync:
                 return False
 
     async def execute_one_query(
-        self, sql_query: str, sql_variables: tuple = None, close_connection: bool = True
+            self, sql_query: str,
+            sql_variables: tuple = None,
+            close_connection: bool = True
     ) -> Union[None, int]:
-        """Fetch query data in a pd Dataframe"""
-        if await self.open_connection() is False:
-            logger.info("No connection was established")
-            return None
+        """
+        :param sql_query: a query to execute once
+        :param sql_variables: variables of the query in a Tuple
+        :param close_connection: closes the connection after execution or leave it opened
+        :return: the number of rows affected or -1 if an error occurred
+        """
+        # check that we have a connection, raise error if not
+        await self.open_connection()
+
         if sql_variables:
             result: str = await self.db_connection.execute(sql_query, *sql_variables)
         else:
@@ -109,43 +111,53 @@ class PostgresConnectorAsync:
         try:
             affected_rows = int(result.split(" ")[-1])
         except ValueError as ex:
-            logger.warning(f"Result of query was: {result}, Error was: {ex}")
+            logger.error(f"Error while parsing Results: {result}, Error: {ex}")
 
         return affected_rows
 
-    async def fetch_all_as_df(
-        self, sql_query: str, sql_variables: tuple = None, close_connection: bool = True
-    ) -> Union[None, pd.DataFrame]:
-        """Fetch query data in a pd Dataframe"""
-        if await self.open_connection() is False:
-            return None
-        if sql_variables:
-            results = await self.db_connection.fetch(
-                sql_query,
-                *sql_variables,
-            )
-        else:
-            results = await self.db_connection.fetch(sql_query)
-        result_df: pd.DataFrame = pd.DataFrame([dict(r.items()) for r in results])
-        if close_connection:
-            await self.close_connection()
-        return result_df
-
     async def fetch_all_as_dicts(
-        self, sql_query: str, sql_variables: tuple = None, close_connection: bool = True
-    ) -> Union[None, List[Dict]]:
-        """Fetch query data in a pd Dataframe"""
-        if await self.open_connection() is False:
-            print("No connection was established")
-            return None
-        if sql_variables:
-            results: list = await self.db_connection.fetch(sql_query, *sql_variables)
-        else:
-            results: list = await self.db_connection.fetch(sql_query)
+            self, sql_query: str, sql_variables: tuple = None, close_connection: bool = True
+    ) -> Union[List[Dict], None]:
+        """
+        Return results of a query as a pd.DataFrame
+        :param sql_query: the SELECT query
+        :param sql_variables: variables of the query in a Tuple
+        :param close_connection: closes the connection after execution or leave it opened
+        :return: a List of Dicts if there was no error, else None
+        """
+
+        # check that we have a connection, raise error if not
+        await self.open_connection()
+
+        results = await self.db_connection.fetch(
+            sql_query,
+            *sql_variables if sql_variables else ()
+        )
         results = [dict(r.items()) for r in results]
         if close_connection:
             await self.close_connection()
         return results
+
+    async def fetch_all_as_df(
+            self, sql_query: str, sql_variables: tuple = None, close_connection: bool = True
+    ) -> Union[pd.DataFrame, None]:
+        """
+        Return results of a query as a pd.DataFrame
+        :param sql_query: the SELECT query
+        :param sql_variables: variables of the query in a Tuple
+        :param close_connection: closes the connection after execution or leave it opened
+        :return: a pd.DataFrame if there was no error, else None
+        """
+        # Uses fetch_all_as_dicts and dataframe results
+        results = await self.fetch_all_as_dicts(sql_query=sql_query,
+                                                sql_variables=sql_variables,
+                                                close_connection=close_connection)
+
+        result_df: pd.DataFrame = pd.DataFrame(results)
+        if close_connection:
+            await self.close_connection()
+
+        return result_df
 
 
 if __name__ == "__main__":
@@ -153,10 +165,9 @@ if __name__ == "__main__":
         SELECT version()
     """
     my_postgres = PostgresConnectorAsync()
-    my_results = asyncio.get_event_loop().run_until_complete(
+    my_results = asyncio.new_event_loop().run_until_complete(
         my_postgres.fetch_all_as_dicts(sql_query=sql_string,
                                        close_connection=True)
     )
-
 
     print(my_results)
