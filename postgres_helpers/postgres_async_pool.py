@@ -53,20 +53,6 @@ class PostgresConnectorAsyncPool:
         self.db_connection_pool: Union[Pool, None] = None
         # shows application name within PGAdmin4 fos instance
         self.server_settings = {'application_name': application_name} if application_name else None
-        try:
-            # if part of multithread/tasks favor using get_running_loop
-            # hopefully this steers away the need for use of nest_asyncio
-            if asyncio_loop:
-                loop = asyncio_loop
-            else:
-                loop = asyncio.get_running_loop()
-
-            loop.run_until_complete(
-                self._create_pool_connection()
-            )
-        except RuntimeError:
-            logger.warning(f"RuntimeError: issue while getting asyncio event loop")
-            asyncio.get_event_loop().run_until_complete(self._create_pool_connection())
 
     async def _create_pool_connection(self):
         """Create a pool connection if None, Raise exception on error"""
