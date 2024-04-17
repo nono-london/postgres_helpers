@@ -12,7 +12,7 @@ purpose of the library is to handle sync and async calls to Postgresql database
 
 * create a new venv:
   ```
-  python -m venv .venv
+  python -m venv venv
   ```
 * install requirements
   ```
