@@ -102,10 +102,11 @@ class PostgresConnectorAsyncPool:
 
         return affected_rows
 
-    async def execute_many_query(self, sql_query: str, tuples: List[Tuple]) -> int:
+    async def execute_many_query(self, sql_query: str, tuples: List[Tuple]) -> None:
         """Return the number of rows rows_affected.
         If one execute fail, the whole tuples update is cancelled
         the query will fail if there is an SQL error, not using try/except
+        Note that executemany, DO NOT return any information on the number of rows affected
         :param sql_query: the SQL query to execute many times
         :param tuples: a list of parameters as tuples
         :return: the number of rows affected or -1 if an error occurred
@@ -114,16 +115,9 @@ class PostgresConnectorAsyncPool:
         await self._create_pool_connection()
 
         async with self.db_connection_pool.acquire() as conn:
-            result = await conn.executemany(sql_query, tuples)
+            await conn.executemany(sql_query, tuples)
 
-        affected_rows: int = -1
-
-        try:
-            affected_rows = int(result.split(" ")[-1])
-        except ValueError as ex:
-            logger.error(f"Error while parsing Results: {result}, Error: {ex}")
-
-        return affected_rows
+        return None
 
     async def fetch_all_as_dicts(
             self, sql_query: str, sql_variables: Optional[Tuple] = None
