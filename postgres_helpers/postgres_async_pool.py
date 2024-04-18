@@ -2,7 +2,8 @@ import asyncio
 import logging
 from os import getenv
 from pathlib import Path
-from typing import Union, Optional, List, Dict
+from typing import (Union, Optional,
+                    List, Dict, Tuple)
 
 import asyncpg
 import pandas as pd
@@ -72,8 +73,8 @@ class PostgresConnectorAsyncPool:
             raise Exception(f"Error while creating Pool Async with PostgreSQL: {ex}")
 
     async def execute_one_query(
-            self, sql_query: str, sql_variables: tuple = None
-    ) -> Union[None, int]:
+            self, sql_query: str, sql_variables: Optional[Tuple] = None
+    ) -> int:
         """
         Execute an SQL query once
         :param sql_query: a query to execute once
@@ -101,32 +102,37 @@ class PostgresConnectorAsyncPool:
 
         return affected_rows
 
-    async def execute_many_query(self, sql_query: str, tuples_list: list) -> int:
-        """Return teh number of rows rows_affected,
+    async def execute_many_query(self, sql_query: str, tuples: List[Tuple]) -> int:
+        """Return the number of rows rows_affected.
+        If one execute fail, the whole tuples update is cancelled
         the query will fail if there is an SQL error, not using try/except
         :param sql_query: the SQL query to execute many times
-        :param tuples_list: a list of parameters as tuples
+        :param tuples: a list of parameters as tuples
+        :return: the number of rows affected or -1 if an error occurred
         """
         # check that we have a connection pool, raise error if not
         await self._create_pool_connection()
 
         async with self.db_connection_pool.acquire() as conn:
-            db_cursor = conn.cursor()
-            db_cursor.executemany(sql_query, tuples_list)
-            rows_affected = db_cursor.rowcount
-            status_message = db_cursor.statusmessage
-            db_cursor.close()
+            result = await conn.executemany(sql_query, tuples)
 
-        return rows_affected
+        affected_rows: int = -1
+
+        try:
+            affected_rows = int(result.split(" ")[-1])
+        except ValueError as ex:
+            logger.error(f"Error while parsing Results: {result}, Error: {ex}")
+
+        return affected_rows
 
     async def fetch_all_as_dicts(
-            self, sql_query: str, sql_variables: Optional[tuple] = None
+            self, sql_query: str, sql_variables: Optional[Tuple] = None
     ) -> Union[List[Dict], None]:
         """Fetch query data in a list of dicts
         :param sql_query: a sql statement
         :type sql_query: str
         :param sql_variables: a tuple with variables
-        :type sql_variables: tuple
+        :type sql_variables: Tuple
         :returns: a list of dicts
         :rtype: List[Dict]
         """
@@ -145,7 +151,7 @@ class PostgresConnectorAsyncPool:
         return results
 
     async def fetch_all_as_df(
-            self, sql_query: str, sql_variables: tuple = None
+            self, sql_query: str, sql_variables: Optional[Tuple] = None
     ) -> Union[pd.DataFrame, None]:
         """Fetch query data in a pd Dataframe
         :param sql_query: a sql statement
