@@ -22,7 +22,8 @@ class PostgresConnectorAsyncPool:
     def __init__(
             self,
 
-            pool_size_max: int = 30,
+            pool_size_max: int = 5,
+            pool_size_min: int = 3,
             db_host: Optional[str] = None,
             db_port: Optional[str] = None,
             db_user: Optional[str] = None,
@@ -50,7 +51,7 @@ class PostgresConnectorAsyncPool:
         self.db_name: str = getenv("POSTGRES_DB_NAME") if db_name is None else db_name
 
         self.pool_size_max: int = pool_size_max
-
+        self.pool_size_min: int = pool_size_min
         self.db_connection_pool: Union[Pool, None] = None
         # shows application name within PGAdmin4 fos instance
         self.server_settings = {'application_name': application_name} if application_name else None
@@ -59,6 +60,10 @@ class PostgresConnectorAsyncPool:
         """Create a pool connection if None, Raise exception on error"""
         try:
             if self.db_connection_pool is None:
+                # check pool size min is lower than pool size max
+                if self.pool_size_min >= self.pool_size_max:
+                    self.pool_size_min = max(1, self.pool_size_max - 1)
+
                 self.db_connection_pool = await asyncpg.create_pool(
                     host=self.db_host,
                     port=self.db_port,
@@ -66,6 +71,7 @@ class PostgresConnectorAsyncPool:
                     password=self.db_password,
                     database=self.db_name,
                     max_size=self.pool_size_max,
+                    min_size=self.pool_size_min,
                     server_settings=self.server_settings if self.server_settings else None
                 )
         except Exception as ex:
