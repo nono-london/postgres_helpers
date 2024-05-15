@@ -80,7 +80,6 @@ class PostgresConnectorPool:
             sql_query: str,
             sql_variables: tuple = None,
             return_last_inserted_id: bool = False,
-            close_connection: bool = True,
     ) -> tuple:
         """return a tuple of (last_inserted_row_id, rows_affected, status_message)
         rows_affected return -1 if SQL error: duplicate key etc., 0 if nothing changed, # of records affected
@@ -188,7 +187,6 @@ class PostgresConnectorPool:
             self,
             table_name: str,
             parameters_dict: dict,
-            close_connection: bool = True,
             on_duplicate_ignore: bool = True,
     ) -> int:
         """Returns the number of rows that have been affected by the query"""
@@ -209,26 +207,23 @@ class PostgresConnectorPool:
 
         row_updated: int = 0
         try:
-            self.open_connection()
-
-            db_cursor = self.db_connection.cursor()
+            self._create_pool_connection()
+            conn = self.db_connection_pool.getconn()
+            conn.autocommit = True
+            db_cursor = conn.cursor()
             parameters_tuple = tuple(list(parameters_dict.values()))
             db_cursor.execute(query, parameters_tuple)
             row_updated = db_cursor.rowcount
-            self.db_connection.commit()
+
             db_cursor.close()
 
         except Exception as ex:
             logger.error(
-                f"Error: {ex}\n"
-                f"parameters: {parameters_dict}"
-                f"Sql string: {query}"
+                f"Error: {ex}-"
+                f"parameters: {parameters_dict}-"
+                f"Sql string: {query}-"
                 f"Failed to insert into MySQL table {table_name}"
             )
-
-        finally:
-            if close_connection:
-                self.close_connection()
 
         return row_updated
 
@@ -238,7 +233,6 @@ class PostgresConnectorPool:
             parameters_dict: dict,
             constraint_key: Optional[str] = None,
             on_duplicate_update: bool = True,
-            close_connection: bool = True,
     ) -> int:
         """Returns the number of rows that have been affected by the query"""
         # https://stackoverflow.com/questions/35305946/python-sql-insert-into-on-duplicate-update-with-dictionary
@@ -294,7 +288,6 @@ class PostgresConnectorPool:
             parameters_dict: dict,
             constraint_key: Optional[str] = None,
             on_duplicate_update: bool = True,
-            close_connection: bool = True,
     ) -> int:
         """Returns the number of rows that have been affected by the query"""
         # https://stackoverflow.com/questions/35305946/python-sql-insert-into-on-duplicate-update-with-dictionary
