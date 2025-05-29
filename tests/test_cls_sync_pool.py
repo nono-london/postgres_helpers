@@ -29,5 +29,43 @@ def test_fetch_as_df():
     assert len(result_df) > 0
 
 
+def test_create_insert_delete():
+    load_dotenv()
+    database_name = 'test_db'
+    table_name = 'test_table'
+
+    my_postgres = PostgresConnectorPool()
+    sql_string = f"""
+        CREATE DATABASE {database_name}
+    """
+
+    result = my_postgres.execute_one_query(sql_query=sql_string)
+    print(f'create database query result:', result)
+    my_postgres.db_connection_pool.closeall()
+
+    my_postgres = PostgresConnectorPool(db_name=database_name)
+
+    sql_string = f"""
+             CREATE TABLE {table_name} (
+            id SERIAL PRIMARY KEY,
+            name VARCHAR(100),
+            value INTEGER)
+        """
+    result = my_postgres.execute_one_query(sql_query=sql_string)
+    print(f'create table query result:', result)
+
+    result = my_postgres.insert_with_dict_returning(table_name=table_name,
+                                                    parameters_dict={'name': 'test_name', 'value': 123}
+                                                    )
+
+    print(f'test returning insert:', result)
+    assert result[1:] == ('test_name', 123)
+    sql_string = f"""
+                 DROP DATABASE IF EXISTS {database_name}
+            """
+    result = my_postgres.execute_one_query(sql_query=sql_string)
+    print(f'drop database :', result)
+
+
 if __name__ == '__main__':
-    pass
+    test_create_insert_delete()

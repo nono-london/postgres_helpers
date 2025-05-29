@@ -227,6 +227,50 @@ class PostgresConnectorPool:
 
         return row_updated
 
+    def insert_with_dict_returning(
+            self,
+            table_name: str,
+            parameters_dict: dict,
+            on_duplicate_ignore: bool = True,
+    ) -> dict | None:
+        """Returns the row that has been inserted, None if an error occurred"""
+        # https://stackoverflow.com/questions/14071038/add-an-element-in-each-dictionary-of-a-list-list-comprehension
+        # Building the sql query
+        placeholder = ", ".join(["%s"] * len(parameters_dict))
+        columns = '"' + '","'.join(parameters_dict.keys()) + '"'
+        if on_duplicate_ignore:
+            ignore_query = " ON CONFLICT DO NOTHING"
+        else:
+            ignore_query = ""
+        query: str = 'INSERT INTO "{table}" ({columns}) VALUES ({values}) {update_query}  RETURNING *'.format(
+            table=table_name,
+            columns=columns,
+            values=placeholder,
+            update_query=ignore_query,
+        )
+
+        try:
+            self._create_pool_connection()
+            conn = self.db_connection_pool.getconn()
+            conn.autocommit = True
+            db_cursor = conn.cursor()
+            parameters_tuple = tuple(list(parameters_dict.values()))
+            db_cursor.execute(query, parameters_tuple)
+            created_rows = db_cursor.fetchone()
+
+            db_cursor.close()
+            return created_rows
+
+        except Exception as ex:
+            logger.error(
+                f"Error: {ex}-"
+                f"parameters: {parameters_dict}-"
+                f"Sql string: {query}-"
+                f"Failed to insert into MySQL table {table_name}"
+            )
+
+        return None
+
     def insert_into_with_dict_update(
             self,
             table_name: str,
