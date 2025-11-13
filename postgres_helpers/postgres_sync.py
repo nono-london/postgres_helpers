@@ -1,8 +1,7 @@
 import logging
-from pathlib import Path
-
-logger = logging.getLogger(f"postgres_helpers:{Path(__file__).name}")
 from os import environ
+from pathlib import Path
+from time import sleep
 from typing import Union, Optional, List, Tuple
 
 # https://zetcode.com/python/psycopg2/
@@ -10,33 +9,27 @@ from typing import Union, Optional, List, Tuple
 import pandas as pd
 import psycopg2
 import psycopg2.extras
+from dotenv import load_dotenv
 from psycopg2 import Error
 from psycopg2.errors import UniqueViolation
 from psycopg2.extensions import connection
 
-from postgres_helpers.app_config import load_postgres_details_to_env
+logger = logging.getLogger(f"postgres_helpers:{Path(__file__).name}")
 
 
 class PostgresConnector:
     """Class to handle Postgresql"""
 
     def __init__(
-        self,
-        db_host: Optional[str] = None,
-        db_port: Optional[str] = None,
-        db_user: Optional[str] = None,
-        db_password: Optional[str] = None,
-        db_name: Optional[str] = None,
-        connect_timeout: int = 6,
+            self,
+            db_host: Optional[str] = None,
+            db_port: Optional[str] = None,
+            db_user: Optional[str] = None,
+            db_password: Optional[str] = None,
+            db_name: Optional[str] = None,
+            connect_timeout: int = 6,
+            application_name: Optional[str] = None
     ):
-        if None in [
-            db_host,
-            db_port,
-            db_name,
-            db_user,
-            db_password,
-        ]:
-            load_postgres_details_to_env()
 
         self.db_host = environ["POSTGRES_DB_HOST"] if db_host is None else db_host
         self.db_port = environ["POSTGRES_DB_PORT"] if db_port is None else str(db_port)
@@ -49,6 +42,7 @@ class PostgresConnector:
         self.db_connection: Union[connection, None] = None
         self.db_version: Union[str, None] = None
         self.connect_timeout: int = connect_timeout
+        self.application_name = application_name.replace(' ', '_') if application_name else None
 
     def open_connection(self) -> bool:
         # check if there is an existing connection which is already opened
@@ -63,6 +57,7 @@ class PostgresConnector:
                 user=self.db_user,
                 password=self.db_password,
                 connect_timeout=self.connect_timeout,
+                application_name=self.application_name
             )
             # allowing autocommit so that when sql error, no need to close conn or rollback
             self.db_connection.autocommit = True
@@ -93,11 +88,11 @@ class PostgresConnector:
         return self.db_version
 
     def execute_one_query(
-        self,
-        sql_query: str,
-        sql_variables: tuple = None,
-        return_last_inserted_id: bool = False,
-        close_connection: bool = True,
+            self,
+            sql_query: str,
+            sql_variables: tuple = None,
+            return_last_inserted_id: bool = False,
+            close_connection: bool = True,
     ) -> tuple:
         """return a tuple of (last_inserted_row_id, rows_affected, status_message)
         rows_affected return -1 if SQL error: duplicate key etc., 0 if nothing changed, # of records affected
@@ -164,7 +159,7 @@ class PostgresConnector:
         return rows_affected, status_message
 
     def fetch_all_as_dicts(
-        self, sql_query: str, sql_variables: tuple = None, close_connection: bool = True
+            self, sql_query: str, sql_variables: tuple = None, close_connection: bool = True
     ) -> List[Tuple]:
         self.open_connection()
 
@@ -182,7 +177,7 @@ class PostgresConnector:
         return rows_found
 
     def fetch_all_as_df(
-        self, sql_query: str, sql_variables: tuple = None, close_connection: bool = True
+            self, sql_query: str, sql_variables: tuple = None, close_connection: bool = True
     ) -> Union[None, pd.DataFrame]:
         self.open_connection()
         # https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.read_sql.html
@@ -200,11 +195,11 @@ class PostgresConnector:
         return result_df
 
     def insert_into_with_dict(
-        self,
-        table_name: str,
-        parameters_dict: dict,
-        close_connection: bool = True,
-        on_duplicate_ignore: bool = True,
+            self,
+            table_name: str,
+            parameters_dict: dict,
+            close_connection: bool = True,
+            on_duplicate_ignore: bool = True,
     ) -> int:
         """Returns the number of rows that have been affected by the query"""
         # https://stackoverflow.com/questions/14071038/add-an-element-in-each-dictionary-of-a-list-list-comprehension
@@ -248,12 +243,12 @@ class PostgresConnector:
         return row_updated
 
     def insert_into_with_dict_update(
-        self,
-        table_name: str,
-        parameters_dict: dict,
-        constraint_key: Optional[str] = None,
-        on_duplicate_update: bool = True,
-        close_connection: bool = True,
+            self,
+            table_name: str,
+            parameters_dict: dict,
+            constraint_key: Optional[str] = None,
+            on_duplicate_update: bool = True,
+            close_connection: bool = True,
     ) -> int:
         """Returns the number of rows that have been affected by the query"""
         # https://stackoverflow.com/questions/35305946/python-sql-insert-into-on-duplicate-update-with-dictionary
@@ -306,12 +301,12 @@ class PostgresConnector:
         return updated_rows
 
     def insert_into_with_dict_update_no_try(
-        self,
-        table_name: str,
-        parameters_dict: dict,
-        constraint_key: Optional[str] = None,
-        on_duplicate_update: bool = True,
-        close_connection: bool = True,
+            self,
+            table_name: str,
+            parameters_dict: dict,
+            constraint_key: Optional[str] = None,
+            on_duplicate_update: bool = True,
+            close_connection: bool = True,
     ) -> int:
         """Returns the number of rows that have been affected by the query"""
         # https://stackoverflow.com/questions/35305946/python-sql-insert-into-on-duplicate-update-with-dictionary
@@ -361,12 +356,14 @@ class PostgresConnector:
 
 
 if __name__ == "__main__":
+    load_dotenv()
     my_postgres = PostgresConnector()
     sql_string = """
         SELECT version()
     """
     my_results = my_postgres.fetch_all_as_dicts(
-        sql_query=sql_string, close_connection=True
+        sql_query=sql_string, close_connection=False
     )
-    my_postgres.close_connection()
     print(my_results)
+    sleep(25)
+    my_postgres.close_connection()

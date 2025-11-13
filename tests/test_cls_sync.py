@@ -1,6 +1,9 @@
+from dotenv import load_dotenv
+
 from postgres_helpers.app_config import logging_config
 from postgres_helpers.postgres_sync import PostgresConnector
 
+load_dotenv()
 logging_config()
 
 
