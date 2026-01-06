@@ -1,21 +1,33 @@
 # IDE
 .idea
-# Venvs
+.vscode
+
+# Virtual environments
 .venv
 venv
-# files
+
+# Logs
+logs/
+
+# Data files
 *.csv
 **/downloads/*
+
 # Secrets
 .env
 /postgres_helpers/app_config_secret.py
 
-# Prod
+# Build artifacts
 build
+dist
+*.egg-info
+.eggs
 
 # Tests
 .pytest_cache
 *.pyc
-.eggs
-postgres_helpers.egg-info
-dist
+__pycache__/
+
+# Coverage
+.coverage
+htmlcov/

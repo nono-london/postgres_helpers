@@ -1,5 +1,4 @@
 import logging
-import platform
 from os import environ
 from pathlib import Path
 from typing import (Union, Optional)
@@ -7,43 +6,42 @@ from typing import (Union, Optional)
 from dotenv import load_dotenv
 
 
-def logging_config(log_file_name: Optional[str] = None,
-                   force_local_folder: bool = False,
-                   project_name: Optional[str] = None,
-                   log_level: int = logging.DEBUG):
-    """Create a basic logging file
+def logging_config(
+        log_file_name: Optional[str] = None,
+        log_level: int = logging.DEBUG
+):
+    """Configure logging to a file in the project's logs folder.
+
+    Creates a 'logs' folder at the project root level if it doesn't exist.
 
     Args:
-        log_file_name (Optional[str], optional): a file name ending with '.log' which will be stored in the log folder. Defaults to None.
-        force_local_folder (bool=False): ignore system parameter and save logs locals within the downloads folder
-        project_name (Optional[str]=None): names the logging folder, if ignored, uses the app name
-        log_level (int=logging.DEBUG): the log level
+        log_file_name: Log file name (e.g., 'my_app.log').
+                      Defaults to 'postgres_helpers.log' if not provided.
+        log_level: Logging level (default: logging.DEBUG)
 
+    Example:
+        from postgres_helpers.app_config import logging_config
+
+        # Use default log file
+        logging_config()
+
+        # Custom log file and level
+        logging_config(log_file_name='my_app.log', log_level=logging.INFO)
     """
-    if not project_name:
-        project_name = get_project_root_path().name
+    # Create logs folder at project root
+    logging_folder = Path(get_project_root_path(), "logs")
+    logging_folder.mkdir(parents=True, exist_ok=True)
 
-    # Handles folder to log into
-    if force_local_folder:
-        logging_folder = Path(get_project_root_path(), project_name, "downloads")
-        logging_folder.mkdir(parents=True, exist_ok=True)
-    else:
-        if platform.system() == 'Linux':
-            logging_folder = Path('/var', "log", "my_apps", "python", project_name, )
-            logging_folder.mkdir(parents=True, exist_ok=True)
-        else:
-            logging_folder = Path(get_project_root_path(), project_name, "downloads")
-            logging_folder.mkdir(parents=True, exist_ok=True)
-    # handles log file name
-    if log_file_name:
-        logging_file_path = Path(logging_folder, log_file_name)
-    else:
-        logging_file_path = Path(logging_folder, f'{project_name}.log')
+    # Set log file name
+    if log_file_name is None:
+        log_file_name = "postgres_helpers.log"
+
+    logging_file_path = Path(logging_folder, log_file_name)
 
     # Configure the root logger
     logging.basicConfig(
-        filename=logging_file_path,  # Global log file name
-        level=log_level,  # Global log level
+        filename=logging_file_path,
+        level=log_level,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
 

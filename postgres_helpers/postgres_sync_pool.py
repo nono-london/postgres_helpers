@@ -1,19 +1,89 @@
+"""
+Synchronous PostgreSQL connector with connection pooling.
+
+This module provides a synchronous interface to PostgreSQL using psycopg2
+with connection pooling for better performance in multi-threaded applications.
+
+Usage:
+    from postgres_helpers.postgres_sync_pool import PostgresConnectorPool
+
+    # As context manager (recommended)
+    with PostgresConnectorPool() as db:
+        results = db.fetch_all_as_dicts("SELECT * FROM users")
+
+    # Manual management
+    db = PostgresConnectorPool()
+    try:
+        results = db.fetch_all_as_dicts("SELECT * FROM users")
+    finally:
+        db.close_pool()
+
+    # With transactions
+    with db.transaction() as cursor:
+        cursor.execute("INSERT INTO orders ...")
+        cursor.execute("UPDATE inventory ...")
+"""
+
 import logging
+from contextlib import contextmanager
 from os import environ
-from typing import (Union, Optional, List, Tuple)
+from pathlib import Path
+from typing import Union, Optional, List, Dict, Any, Tuple, Iterator
 
 import pandas as pd
-from dotenv import load_dotenv
 from psycopg2 import Error
-from psycopg2.errors import UniqueViolation
+from psycopg2.errors import (
+    UniqueViolation,
+    ForeignKeyViolation,
+    CheckViolation
+)
 from psycopg2.extras import RealDictCursor
 from psycopg2.pool import SimpleConnectionPool
 
-logger = logging.getLogger(f"postgres_helpers:{__name__}")
+from postgres_helpers.app_config import load_postgres_details_to_env
+from postgres_helpers.exceptions import (
+    PostgresHelperError,
+    ConnectionError,
+    PoolError,
+    QueryExecutionError,
+    UniqueViolationError,
+    ForeignKeyViolationError,
+    CheckViolationError,
+    TransactionError
+)
+from postgres_helpers.results import (
+    QueryResult,
+    ExecuteManyResult,
+    InsertResult,
+    UpsertResult,
+    ConnectionInfo
+)
+
+logger = logging.getLogger(f"postgres_helpers:{Path(__file__).name}")
 
 
 class PostgresConnectorPool:
-    """Class to handle Postgresql"""
+    """
+    Synchronous PostgreSQL connector with connection pooling.
+
+    This class manages a pool of database connections for efficient
+    multi-threaded database access.
+
+    Args:
+        db_host: Database host (falls back to POSTGRES_DB_HOST env var)
+        db_port: Database port (falls back to POSTGRES_DB_PORT env var)
+        db_user: Database user (falls back to POSTGRES_DB_USER env var)
+        db_password: Database password (falls back to POSTGRES_DB_PASS env var)
+        db_name: Database name (falls back to POSTGRES_DB_NAME env var)
+        connect_timeout: Connection timeout in seconds (default: 6)
+        pool_size_min: Minimum pool size (default: 2)
+        pool_size_max: Maximum pool size (default: 5)
+        application_name: Name shown in pg_stat_activity (optional)
+
+    Example:
+        with PostgresConnectorPool(pool_size_max=10) as db:
+            users = db.fetch_all_as_dicts("SELECT * FROM users")
+    """
 
     def __init__(
             self,
@@ -25,371 +95,697 @@ class PostgresConnectorPool:
             connect_timeout: int = 6,
             pool_size_min: int = 2,
             pool_size_max: int = 5,
-            application_name: Optional[str] = None,
+            application_name: Optional[str] = None
     ):
-        self.pool_size_min: int = pool_size_min
-        self.pool_size_max: int = pool_size_max
+        if None in [db_host, db_port, db_name, db_user, db_password]:
+            load_postgres_details_to_env()
 
         self.db_host = environ["POSTGRES_DB_HOST"] if db_host is None else db_host
         self.db_port = environ["POSTGRES_DB_PORT"] if db_port is None else str(db_port)
         self.db_user: str = environ["POSTGRES_DB_USER"] if db_user is None else db_user
-        self.db_password: str = (
-            environ["POSTGRES_DB_PASS"] if db_password is None else db_password
-        )
+        self.db_password: str = environ["POSTGRES_DB_PASS"] if db_password is None else db_password
         self.db_name: str = environ["POSTGRES_DB_NAME"] if db_name is None else db_name
 
-        self.db_connection_pool: Union[SimpleConnectionPool, None] = None
-        self.db_version: Union[str, None] = None
+        self.pool_size_min: int = pool_size_min
+        self.pool_size_max: int = pool_size_max
         self.connect_timeout: int = connect_timeout
+        self.application_name = application_name.strip().replace(" ", "_") if application_name else None
 
-        self.application_name = application_name if application_name is None else application_name.strip().replace(" ",
-                                                                                                                   "_")
+        self.db_connection_pool: Optional[SimpleConnectionPool] = None
 
-    def _create_pool_connection(self):
-        """Create a pool connection if None, Raise exception on error"""
-        if self.db_connection_pool is None:
-            # check pool size min is lower than pool size max
-            if self.pool_size_min >= self.pool_size_max:
-                self.pool_size_min = max(1, self.pool_size_max - 1)
+    # =========================================================================
+    # Context Manager Support
+    # =========================================================================
+
+    def __enter__(self) -> "PostgresConnectorPool":
+        """Enter context manager - creates pool."""
+        self._create_pool_connection()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        """Exit context manager - closes pool."""
+        self.close_pool()
+
+    # =========================================================================
+    # Pool Lifecycle
+    # =========================================================================
+
+    def _create_pool_connection(self) -> None:
+        """
+        Create the connection pool if it doesn't exist.
+
+        Raises:
+            PoolError: If pool creation fails.
+        """
+        if self.db_connection_pool is not None:
+            return
+
+        # Ensure min < max
+        if self.pool_size_min >= self.pool_size_max:
+            self.pool_size_min = max(1, self.pool_size_max - 1)
+
+        try:
+            self.db_connection_pool = SimpleConnectionPool(
+                minconn=self.pool_size_min,
+                maxconn=self.pool_size_max,
+                host=self.db_host,
+                port=self.db_port,
+                user=self.db_user,
+                password=self.db_password,
+                dbname=self.db_name,
+                connect_timeout=self.connect_timeout,
+                application_name=self.application_name
+            )
+        except Exception as ex:
+            logger.error(f"Failed to create pool: {ex}")
+            raise PoolError(
+                f"Failed to create connection pool: {ex}",
+                pool_size_min=self.pool_size_min,
+                pool_size_max=self.pool_size_max,
+                original_error=ex
+            )
+
+    def close_pool(self) -> None:
+        """
+        Close all connections in the pool.
+
+        Safe to call multiple times.
+        """
+        if self.db_connection_pool is not None:
             try:
-                self.db_connection_pool = SimpleConnectionPool(
-                    minconn=self.pool_size_min,
-                    maxconn=self.pool_size_max,
-                    host=self.db_host,
-                    port=self.db_port,
-                    user=self.db_user,
-                    password=self.db_password,
-                    dbname=self.db_name,
-                    application_name=self.application_name
-                    # server_settings=self.server_settings if self.server_settings else None
-                )
+                self.db_connection_pool.closeall()
             except Exception as ex:
-                logger.error(f"Error while creating Pool with Postgres: {ex}")
-                raise Exception(f"Error while creating Pool with Postgres: {ex}")
+                logger.error(f"Error closing pool: {ex}")
+            finally:
+                self.db_connection_pool = None
 
-    def get_postgresql_version(self) -> str:
-        result = self.fetch_all_as_dicts(
-            "SELECT version()",
+    def is_pool_active(self) -> bool:
+        """Check if pool is active."""
+        return self.db_connection_pool is not None
+
+    def get_pool_status(self) -> ConnectionInfo:
+        """Get information about the pool."""
+        return ConnectionInfo(
+            host=self.db_host,
+            port=self.db_port,
+            database=self.db_name,
+            user=self.db_user,
+            is_connected=self.is_pool_active(),
+            pool_size=self.pool_size_max if self.is_pool_active() else None
         )
-        self.db_version = result[0]["version"].split(",")[0].strip()
-        logger.info(f"Connected to Postgres version: {self.db_version}")
-        return self.db_version
+
+    # =========================================================================
+    # Transaction Support
+    # =========================================================================
+
+    @contextmanager
+    def transaction(self) -> Iterator:
+        """
+        Context manager for database transactions.
+
+        Automatically commits on success, rolls back on exception.
+        Note: psycopg2 uses autocommit=False by default, so we disable
+        autocommit for the duration of the transaction.
+
+        Yields:
+            psycopg2 cursor with active transaction.
+
+        Example:
+            with db.transaction() as cursor:
+                cursor.execute("INSERT INTO orders ...")
+                cursor.execute("UPDATE inventory ...")
+        """
+        self._create_pool_connection()
+        conn = self.db_connection_pool.getconn()
+
+        # Disable autocommit for transaction
+        original_autocommit = conn.autocommit
+        conn.autocommit = False
+
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+        try:
+            yield cursor
+            conn.commit()
+        except Exception as ex:
+            conn.rollback()
+            logger.error(f"Transaction error, rolled back: {ex}")
+            raise TransactionError(f"Transaction failed: {ex}", original_error=ex)
+        finally:
+            cursor.close()
+            conn.autocommit = original_autocommit
+            self.db_connection_pool.putconn(conn)
+
+    @contextmanager
+    def acquire_connection(self) -> Iterator:
+        """
+        Acquire a connection from the pool.
+
+        Yields:
+            psycopg2 connection.
+        """
+        self._create_pool_connection()
+        conn = self.db_connection_pool.getconn()
+        try:
+            yield conn
+        finally:
+            self.db_connection_pool.putconn(conn)
+
+    # =========================================================================
+    # Error Handling Helper
+    # =========================================================================
+
+    def _convert_exception(
+            self,
+            ex: Exception,
+            query: Optional[str] = None,
+            params: Optional[tuple] = None
+    ) -> PostgresHelperError:
+        """Convert psycopg2 exceptions to postgres_helpers exceptions."""
+        safe_query = query[:200] + "..." if query and len(query) > 200 else query
+
+        if isinstance(ex, UniqueViolation):
+            return UniqueViolationError(
+                f"Unique constraint violation: {ex}",
+                query=safe_query,
+                params=params,
+                original_error=ex
+            )
+        elif isinstance(ex, ForeignKeyViolation):
+            return ForeignKeyViolationError(
+                f"Foreign key constraint violation: {ex}",
+                query=safe_query,
+                params=params,
+                original_error=ex
+            )
+        elif isinstance(ex, CheckViolation):
+            return CheckViolationError(
+                f"Check constraint violation: {ex}",
+                query=safe_query,
+                params=params,
+                original_error=ex
+            )
+        elif isinstance(ex, Error):
+            return QueryExecutionError(
+                f"Query execution failed: {ex}",
+                query=safe_query,
+                params=params,
+                original_error=ex
+            )
+        else:
+            return QueryExecutionError(
+                f"Unexpected error: {ex}",
+                query=safe_query,
+                params=params,
+                original_error=ex
+            )
+
+    # =========================================================================
+    # Query Execution Methods
+    # =========================================================================
 
     def execute_one_query(
             self,
             sql_query: str,
-            sql_variables: tuple = None,
-            return_last_inserted_id: bool = False,
-    ) -> tuple:
-        """return a tuple of (last_inserted_row_id, rows_affected, status_message)
-        rows_affected return -1 if SQL error: duplicate key etc., 0 if nothing changed, # of records affected
+            sql_variables: Optional[tuple] = None
+    ) -> QueryResult:
         """
+        Execute a single SQL query (INSERT, UPDATE, DELETE, etc.).
 
+        Args:
+            sql_query: The SQL query to execute.
+            sql_variables: Query parameters as a tuple.
+
+        Returns:
+            QueryResult with rows_affected and status_message.
+
+        Raises:
+            PoolError: If pool creation fails.
+            UniqueViolationError: If unique constraint is violated.
+            QueryExecutionError: For other query errors.
+        """
         self._create_pool_connection()
         conn = self.db_connection_pool.getconn()
         conn.autocommit = True
 
-        db_cursor = conn.cursor()
+        cursor = conn.cursor()
 
         try:
-            db_cursor.execute(sql_query, sql_variables)
-            # needs to commit for data to be stored
-            # self.db_connection.commit()
-        except UniqueViolation as ex:
-            logger.warning(f"Error with UNIQUE KEY: {ex}")
-            # needs to rollback or close connection when unhandled SQL error
-            # https://stackoverflow.com/questions/2979369/databaseerror-current-transaction-is-aborted-commands-ignored-until-end-of-tra
-            # self.db_connection.rollback()
-        except Exception as ex:
-            logger.error(
-                f"Error while inserting data {sql_variables}-"
-                f"with SQL query: {sql_query}-"
-                f"error: {ex}-"
-                f"error Class: {ex.__class__.__name__}"
+            cursor.execute(sql_query, sql_variables)
+
+            return QueryResult(
+                rows_affected=cursor.rowcount,
+                status_message=cursor.statusmessage,
+                success=True
             )
 
-        rows_affected = db_cursor.rowcount
-        status_message = db_cursor.statusmessage
+        except Exception as ex:
+            logger.error(f"execute_one_query failed: {ex}")
+            raise self._convert_exception(ex, sql_query, sql_variables)
 
-        last_row_id = -1
-        if return_last_inserted_id:
-            try:
-                last_row_id = db_cursor.fetchone()[0]
-            except (Exception, Error) as ex:
-                logger.error(f"Error while recovering last inserted id: {ex}")
-                last_row_id = -1
+        finally:
+            cursor.close()
+            self.db_connection_pool.putconn(conn)
 
-        db_cursor.close()
-        self.db_connection_pool.putconn(conn)
+    def execute_many_query(
+            self,
+            sql_query: str,
+            tuples_list: List[tuple]
+    ) -> ExecuteManyResult:
+        """
+        Execute a query multiple times with different parameters.
 
-        return last_row_id, rows_affected, status_message
+        Args:
+            sql_query: The SQL query to execute.
+            tuples_list: List of parameter tuples.
 
-    def execute_many_query(self, sql_query: str, tuples_list: list) -> tuple:
-        """Return a tuple of (rows_affected, status_message)
-        tuples_list is a list of parameters as tuples
-        the query will fail if there is an SQL error, not using try/except
-
+        Returns:
+            ExecuteManyResult with execution statistics.
         """
         self._create_pool_connection()
         conn = self.db_connection_pool.getconn()
         conn.autocommit = True
 
-        db_cursor = conn.cursor()
+        cursor = conn.cursor()
 
-        db_cursor.executemany(sql_query, tuples_list)
+        try:
+            cursor.executemany(sql_query, tuples_list)
 
-        # self.db_connection.commit()
-        # commit shouldn't be needed anymore using autocommit
-        # https://stackoverflow.com/questions/9222256/how-do-i-know-if-i-have-successfully-created-a-table-python-psycopg2
-        rows_affected = db_cursor.rowcount
-        status_message = db_cursor.statusmessage
-        db_cursor.close()
-        self.db_connection_pool.putconn(conn)
+            return ExecuteManyResult(
+                success=True,
+                total_statements=len(tuples_list),
+                rows_affected=cursor.rowcount
+            )
 
-        return rows_affected, status_message
+        except Exception as ex:
+            logger.error(f"execute_many_query failed: {ex}")
+            raise self._convert_exception(ex, sql_query)
+
+        finally:
+            cursor.close()
+            self.db_connection_pool.putconn(conn)
+
+    # =========================================================================
+    # Fetch Methods
+    # =========================================================================
 
     def fetch_all_as_dicts(
-            self, sql_query: str, sql_variables: tuple = None
-    ) -> List[Tuple]:
+            self,
+            sql_query: str,
+            sql_variables: Optional[tuple] = None
+    ) -> List[Dict[str, Any]]:
         """
+        Fetch all rows as a list of dictionaries.
 
+        Args:
+            sql_query: SELECT query to execute.
+            sql_variables: Query parameters as a tuple.
+
+        Returns:
+            List of dicts where keys are column names.
         """
-
         self._create_pool_connection()
         conn = self.db_connection_pool.getconn()
 
-        db_cursor = conn.cursor(
-            cursor_factory=RealDictCursor
-        )
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
 
-        db_cursor.execute(sql_query, sql_variables)
-        rows_found = db_cursor.fetchall()
-        db_cursor.close()
-        self.db_connection_pool.putconn(conn)
+        try:
+            cursor.execute(sql_query, sql_variables)
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows]
 
-        return rows_found
+        except Exception as ex:
+            logger.error(f"fetch_all_as_dicts failed: {ex}")
+            raise self._convert_exception(ex, sql_query, sql_variables)
+
+        finally:
+            cursor.close()
+            self.db_connection_pool.putconn(conn)
 
     def fetch_all_as_df(
-            self, sql_query: str, sql_variables: tuple = None
-    ) -> Union[None, pd.DataFrame]:
+            self,
+            sql_query: str,
+            sql_variables: Optional[tuple] = None
+    ) -> pd.DataFrame:
+        """
+        Fetch all rows as a pandas DataFrame.
 
-        results: list = self.fetch_all_as_dicts(
-            sql_query=sql_query, sql_variables=sql_variables
+        Args:
+            sql_query: SELECT query to execute.
+            sql_variables: Query parameters as a tuple.
+
+        Returns:
+            DataFrame with columns matching the query result.
+        """
+        results = self.fetch_all_as_dicts(
+            sql_query=sql_query,
+            sql_variables=sql_variables
         )
+        return pd.DataFrame(results) if results else pd.DataFrame()
 
-        result_df: pd.DataFrame = pd.DataFrame(
-            results,
-        )
+    def fetch_one_as_dict(
+            self,
+            sql_query: str,
+            sql_variables: Optional[tuple] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Fetch a single row as a dictionary.
 
-        return result_df
+        Args:
+            sql_query: SELECT query (should return 0 or 1 row).
+            sql_variables: Query parameters as a tuple.
+
+        Returns:
+            Dict with column names as keys, or None if no row found.
+        """
+        self._create_pool_connection()
+        conn = self.db_connection_pool.getconn()
+
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+        try:
+            cursor.execute(sql_query, sql_variables)
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+        except Exception as ex:
+            logger.error(f"fetch_one_as_dict failed: {ex}")
+            raise self._convert_exception(ex, sql_query, sql_variables)
+
+        finally:
+            cursor.close()
+            self.db_connection_pool.putconn(conn)
+
+    def fetch_value(
+            self,
+            sql_query: str,
+            sql_variables: Optional[tuple] = None
+    ) -> Optional[Any]:
+        """
+        Fetch a single value from the first column of the first row.
+
+        Args:
+            sql_query: SELECT query (should select one column).
+            sql_variables: Query parameters as a tuple.
+
+        Returns:
+            The value, or None if no row found.
+        """
+        self._create_pool_connection()
+        conn = self.db_connection_pool.getconn()
+
+        cursor = conn.cursor()
+
+        try:
+            cursor.execute(sql_query, sql_variables)
+            row = cursor.fetchone()
+            return row[0] if row else None
+
+        except Exception as ex:
+            logger.error(f"fetch_value failed: {ex}")
+            raise self._convert_exception(ex, sql_query, sql_variables)
+
+        finally:
+            cursor.close()
+            self.db_connection_pool.putconn(conn)
+
+    # =========================================================================
+    # Convenience Insert Methods
+    # =========================================================================
 
     def insert_into_with_dict(
             self,
             table_name: str,
-            parameters_dict: dict,
-            on_duplicate_ignore: bool = True,
-    ) -> int:
-        """Returns the number of rows that have been affected by the query"""
-        # https://stackoverflow.com/questions/14071038/add-an-element-in-each-dictionary-of-a-list-list-comprehension
-        # Building the sql query
+            parameters_dict: Dict[str, Any],
+            on_duplicate_ignore: bool = True
+    ) -> InsertResult:
+        """
+        Insert a row using a dictionary of column: value pairs.
+
+        Args:
+            table_name: Name of the table to insert into.
+            parameters_dict: Dict mapping column names to values.
+            on_duplicate_ignore: If True, ignore duplicate key errors.
+
+        Returns:
+            InsertResult with insertion details.
+        """
         placeholder = ", ".join(["%s"] * len(parameters_dict))
         columns = '"' + '","'.join(parameters_dict.keys()) + '"'
-        if on_duplicate_ignore:
-            ignore_query = " ON CONFLICT DO NOTHING"
-        else:
-            ignore_query = ""
-        query: str = 'INSERT INTO "{table}" ({columns}) VALUES ({values}) {update_query} '.format(
-            table=table_name,
-            columns=columns,
-            values=placeholder,
-            update_query=ignore_query,
-        )
+        conflict_clause = " ON CONFLICT DO NOTHING" if on_duplicate_ignore else ""
 
-        row_updated: int = 0
+        query = f'INSERT INTO "{table_name}" ({columns}) VALUES ({placeholder}){conflict_clause}'
+        params = tuple(parameters_dict.values())
+
+        self._create_pool_connection()
+        conn = self.db_connection_pool.getconn()
+        conn.autocommit = True
+
+        cursor = conn.cursor()
+
         try:
-            self._create_pool_connection()
-            conn = self.db_connection_pool.getconn()
-            conn.autocommit = True
-            db_cursor = conn.cursor()
-            parameters_tuple = tuple(list(parameters_dict.values()))
-            db_cursor.execute(query, parameters_tuple)
-            row_updated = db_cursor.rowcount
+            cursor.execute(query, params)
 
-            db_cursor.close()
-
-        except Exception as ex:
-            logger.error(
-                f"Error: {ex}-"
-                f"parameters: {parameters_dict}-"
-                f"Sql string: {query}-"
-                f"Failed to insert into MySQL table {table_name}"
+            return InsertResult(
+                rows_affected=cursor.rowcount,
+                success=True,
+                was_duplicate=(cursor.rowcount == 0 and on_duplicate_ignore)
             )
 
-        return row_updated
+        except UniqueViolation as ex:
+            if on_duplicate_ignore:
+                return InsertResult(rows_affected=0, success=True, was_duplicate=True)
+            raise self._convert_exception(ex, query, params)
+
+        except Exception as ex:
+            logger.error(f"insert_into_with_dict failed: {ex}")
+            raise self._convert_exception(ex, query, params)
+
+        finally:
+            cursor.close()
+            self.db_connection_pool.putconn(conn)
 
     def insert_with_dict_returning(
             self,
             table_name: str,
-            parameters_dict: dict,
-            on_duplicate_ignore: bool = True,
-    ) -> dict | None:
-        """Returns the row that has been inserted, None if an error occurred"""
-        # https://stackoverflow.com/questions/14071038/add-an-element-in-each-dictionary-of-a-list-list-comprehension
-        # Building the sql query
+            parameters_dict: Dict[str, Any],
+            on_duplicate_ignore: bool = True
+    ) -> InsertResult:
+        """
+        Insert a row and return the inserted row data.
+
+        Args:
+            table_name: Name of the table to insert into.
+            parameters_dict: Dict mapping column names to values.
+            on_duplicate_ignore: If True, ignore duplicate key errors.
+
+        Returns:
+            InsertResult with returning_row containing the full inserted row.
+        """
         placeholder = ", ".join(["%s"] * len(parameters_dict))
         columns = '"' + '","'.join(parameters_dict.keys()) + '"'
-        if on_duplicate_ignore:
-            ignore_query = " ON CONFLICT DO NOTHING"
-        else:
-            ignore_query = ""
-        query: str = 'INSERT INTO "{table}" ({columns}) VALUES ({values}) {update_query}  RETURNING *'.format(
-            table=table_name,
-            columns=columns,
-            values=placeholder,
-            update_query=ignore_query,
-        )
+        conflict_clause = " ON CONFLICT DO NOTHING" if on_duplicate_ignore else ""
+
+        query = f'INSERT INTO "{table_name}" ({columns}) VALUES ({placeholder}){conflict_clause} RETURNING *'
+        params = tuple(parameters_dict.values())
+
+        self._create_pool_connection()
+        conn = self.db_connection_pool.getconn()
+        conn.autocommit = True
+
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
 
         try:
-            self._create_pool_connection()
-            conn = self.db_connection_pool.getconn()
-            conn.autocommit = True
-            db_cursor = conn.cursor()
-            parameters_tuple = tuple(list(parameters_dict.values()))
-            db_cursor.execute(query, parameters_tuple)
-            created_rows = db_cursor.fetchone()
+            cursor.execute(query, params)
+            row = cursor.fetchone()
 
-            db_cursor.close()
-            return created_rows
+            if row:
+                row_dict = dict(row)
+                return InsertResult(
+                    rows_affected=1,
+                    success=True,
+                    was_duplicate=False,
+                    returning_row=row_dict,
+                    last_inserted_id=row_dict.get('id')
+                )
+            else:
+                return InsertResult(rows_affected=0, success=True, was_duplicate=True)
+
+        except UniqueViolation as ex:
+            if on_duplicate_ignore:
+                return InsertResult(rows_affected=0, success=True, was_duplicate=True)
+            raise self._convert_exception(ex, query, params)
 
         except Exception as ex:
-            logger.error(
-                f"Error: {ex}-"
-                f"parameters: {parameters_dict}-"
-                f"Sql string: {query}-"
-                f"Failed to insert into MySQL table {table_name}"
-            )
+            logger.error(f"insert_with_dict_returning failed: {ex}")
+            raise self._convert_exception(ex, query, params)
 
-        return None
+        finally:
+            cursor.close()
+            self.db_connection_pool.putconn(conn)
 
     def insert_into_with_dict_update(
             self,
             table_name: str,
-            parameters_dict: dict,
+            parameters_dict: Dict[str, Any],
             constraint_key: Optional[str] = None,
-            on_duplicate_update: bool = True,
-    ) -> int:
-        """Returns the number of rows that have been affected by the query"""
-        # https://stackoverflow.com/questions/35305946/python-sql-insert-into-on-duplicate-update-with-dictionary
-        # https://stackoverflow.com/questions/14071038/add-an-element-in-each-dictionary-of-a-list-list-comprehension
+            on_duplicate_update: bool = True
+    ) -> UpsertResult:
+        """
+        Insert a row, or update it if it already exists (upsert).
 
-        placeholder: str = ", ".join(["%s"] * len(parameters_dict))
-        update_query: str = ""
+        Args:
+            table_name: Name of the table.
+            parameters_dict: Dict mapping column names to values.
+            constraint_key: Name of the unique constraint.
+            on_duplicate_update: If True, update on conflict.
+
+        Returns:
+            UpsertResult with operation details.
+        """
+        placeholder = ", ".join(["%s"] * len(parameters_dict))
+        columns = '"' + '","'.join(parameters_dict.keys()) + '"'
 
         if on_duplicate_update:
             if constraint_key is None:
                 constraint_key = f"{table_name}_pkey"
-            set_query = ", ".join(
-                [str(key) + f" = EXCLUDED.{key}" for key in parameters_dict.keys()]
+            set_clause = ", ".join(
+                f'"{key}" = EXCLUDED."{key}"' for key in parameters_dict.keys()
             )
-            update_query = (
+            conflict_clause = (
                 f" ON CONFLICT ON CONSTRAINT {constraint_key}"
-                f" DO UPDATE "
-                f" SET {set_query} "
+                f" DO UPDATE SET {set_clause}"
             )
+        else:
+            conflict_clause = " ON CONFLICT DO NOTHING"
 
-        columns = '"' + '","'.join(parameters_dict.keys()) + '"'
-        query = 'INSERT INTO "{table}" ({columns}) VALUES ({values}) {update_query} '.format(
-            table=table_name,
-            columns=columns,
-            values=placeholder,
-            update_query=update_query,
-        )
+        query = f'INSERT INTO "{table_name}" ({columns}) VALUES ({placeholder}){conflict_clause}'
+        params = tuple(parameters_dict.values())
 
-        parameters_tuple = tuple(list(parameters_dict.values()))
-
-        updated_rows: int = 0
         self._create_pool_connection()
         conn = self.db_connection_pool.getconn()
         conn.autocommit = True
+
+        cursor = conn.cursor()
+
         try:
-            db_cursor = conn.cursor()
-            db_cursor.execute(query, parameters_tuple)
-            updated_rows = db_cursor.rowcount
-            db_cursor.close()
-        except Exception as ex:
-            logger.error(
-                f"Error with insert in Postgres: {ex}-"
-                f"Parameters used are:\n{parameters_tuple}-"
-                f"Query is:\n{query}"
+            cursor.execute(query, params)
+
+            return UpsertResult(
+                rows_affected=cursor.rowcount,
+                success=True,
+                was_inserted=(cursor.rowcount > 0),
+                was_updated=False
             )
 
-        self.db_connection_pool.putconn(conn)
-        return updated_rows
+        except Exception as ex:
+            logger.error(f"insert_into_with_dict_update failed: {ex}")
+            raise self._convert_exception(ex, query, params)
 
-    def insert_into_with_dict_update_no_try(
+        finally:
+            cursor.close()
+            self.db_connection_pool.putconn(conn)
+
+    def insert_into_with_dict_update_returning(
             self,
             table_name: str,
-            parameters_dict: dict,
-            constraint_key: Optional[str] = None,
-            on_duplicate_update: bool = True,
-    ) -> int:
-        """Returns the number of rows that have been affected by the query"""
-        # https://stackoverflow.com/questions/35305946/python-sql-insert-into-on-duplicate-update-with-dictionary
-        # https://stackoverflow.com/questions/14071038/add-an-element-in-each-dictionary-of-a-list-list-comprehension
+            parameters_dict: Dict[str, Any],
+            constraint_key: Optional[str] = None
+    ) -> UpsertResult:
+        """
+        Upsert a row and return the result with accurate insert/update detection.
 
-        placeholder: str = ", ".join(["%s"] * len(parameters_dict))
-        update_query: str = ""
+        Args:
+            table_name: Name of the table.
+            parameters_dict: Dict mapping column names to values.
+            constraint_key: Name of the unique constraint.
 
-        if on_duplicate_update:
-            if constraint_key is None:
-                constraint_key = f"{table_name}_pkey"
-            set_query = ", ".join(
-                [str(key) + f" = EXCLUDED.{key}" for key in parameters_dict.keys()]
-            )
-            update_query = (
-                f" ON CONFLICT ON CONSTRAINT {constraint_key}"
-                f" DO UPDATE "
-                f" SET {set_query} "
-            )
-
+        Returns:
+            UpsertResult with accurate was_inserted/was_updated flags.
+        """
+        placeholder = ", ".join(["%s"] * len(parameters_dict))
         columns = '"' + '","'.join(parameters_dict.keys()) + '"'
-        query = 'INSERT INTO "{table}" ({columns}) VALUES ({values}) {update_query} '.format(
-            table=table_name,
-            columns=columns,
-            values=placeholder,
-            update_query=update_query,
+
+        if constraint_key is None:
+            constraint_key = f"{table_name}_pkey"
+
+        set_clause = ", ".join(
+            f'"{key}" = EXCLUDED."{key}"' for key in parameters_dict.keys()
         )
 
-        parameters_tuple = tuple(list(parameters_dict.values()))
+        query = (
+            f'INSERT INTO "{table_name}" ({columns}) VALUES ({placeholder})'
+            f' ON CONFLICT ON CONSTRAINT {constraint_key}'
+            f' DO UPDATE SET {set_clause}'
+            f' RETURNING *, xmax'
+        )
+        params = tuple(parameters_dict.values())
 
+        self._create_pool_connection()
         conn = self.db_connection_pool.getconn()
         conn.autocommit = True
-        db_cursor = conn.cursor()
+
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
 
         try:
-            db_cursor.execute(query, parameters_tuple)
+            cursor.execute(query, params)
+            row = cursor.fetchone()
+
+            if row:
+                row_dict = dict(row)
+                xmax = row_dict.pop('xmax', 0)
+
+                return UpsertResult(
+                    rows_affected=1,
+                    success=True,
+                    was_inserted=(xmax == 0),
+                    was_updated=(xmax > 0),
+                    returning_row=row_dict
+                )
+            else:
+                return UpsertResult(rows_affected=0, success=True)
+
         except Exception as ex:
-            logger.critical(f"Query: {db_cursor.query}\n" f"Raised Error is: {ex}")
-            raise ex
+            logger.error(f"insert_into_with_dict_update_returning failed: {ex}")
+            raise self._convert_exception(ex, query, params)
 
-        updated_rows = db_cursor.rowcount
+        finally:
+            cursor.close()
+            self.db_connection_pool.putconn(conn)
 
-        db_cursor.close()
+    # =========================================================================
+    # Utility Methods
+    # =========================================================================
 
-        self.db_connection_pool.putconn(conn)
+    def get_postgresql_version(self) -> str:
+        """Get the PostgreSQL server version."""
+        result = self.fetch_all_as_dicts("SELECT version()")
+        version = result[0]["version"].split(",")[0].strip()
+        logger.info(f"Connected to: {version}")
+        return version
 
-        return updated_rows
+    def table_exists(self, table_name: str, schema: str = "public") -> bool:
+        """Check if a table exists."""
+        result = self.fetch_value(
+            """
+            SELECT EXISTS (
+                SELECT FROM information_schema.tables 
+                WHERE table_schema = %s AND table_name = %s
+            )
+            """,
+            (schema, table_name)
+        )
+        return bool(result)
 
+
+# =============================================================================
+# Main (for testing)
+# =============================================================================
 
 if __name__ == "__main__":
-    load_dotenv()
-    my_postgres = PostgresConnectorPool()
-    sql_string = """
-        SELECT version()
-    """
-    my_results = my_postgres.fetch_all_as_dicts(
-        sql_query=sql_string,
-    )
-    # my_postgres.get_postgresql_version()
+    with PostgresConnectorPool(application_name="test_sync_pool") as db:
+        version = db.get_postgresql_version()
+        print(f"Connected to: {version}")
 
-    print(my_results)
+        results = db.fetch_all_as_df("SELECT version()")
+        print(results)
