@@ -548,6 +548,7 @@ class PostgresConnectorPool:
 
             return InsertResult(
                 rows_affected=cursor.rowcount,
+                status_message=cursor.statusmessage or "",
                 success=True,
                 was_duplicate=(cursor.rowcount == 0 and on_duplicate_ignore)
             )
@@ -599,17 +600,20 @@ class PostgresConnectorPool:
             cursor.execute(query, params)
             row = cursor.fetchone()
 
+            status = cursor.statusmessage or ""
+
             if row:
                 row_dict = dict(row)
                 return InsertResult(
                     rows_affected=1,
+                    status_message=status,
                     success=True,
                     was_duplicate=False,
                     returning_row=row_dict,
                     last_inserted_id=row_dict.get('id')
                 )
             else:
-                return InsertResult(rows_affected=0, success=True, was_duplicate=True)
+                return InsertResult(rows_affected=0, status_message=status, success=True, was_duplicate=True)
 
         except UniqueViolation as ex:
             if on_duplicate_ignore:
@@ -673,6 +677,7 @@ class PostgresConnectorPool:
 
             return UpsertResult(
                 rows_affected=cursor.rowcount,
+                status_message=cursor.statusmessage or "",
                 success=True,
                 was_inserted=(cursor.rowcount > 0),
                 was_updated=False
@@ -731,19 +736,22 @@ class PostgresConnectorPool:
             cursor.execute(query, params)
             row = cursor.fetchone()
 
+            status = cursor.statusmessage or ""
+
             if row:
                 row_dict = dict(row)
                 xmax = row_dict.pop('xmax', 0)
 
                 return UpsertResult(
                     rows_affected=1,
+                    status_message=status,
                     success=True,
                     was_inserted=(xmax == 0),
                     was_updated=(xmax > 0),
                     returning_row=row_dict
                 )
             else:
-                return UpsertResult(rows_affected=0, success=True)
+                return UpsertResult(rows_affected=0, status_message=status, success=True)
 
         except Exception as ex:
             logger.error(f"insert_into_with_dict_update_returning failed: {ex}")

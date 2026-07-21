@@ -40,7 +40,7 @@ def test_create_insert_delete():
     """
 
     result = my_postgres.execute_one_query(sql_query=sql_string)
-    assert result[2] == 'CREATE DATABASE'
+    assert result.status_message == 'CREATE DATABASE'
     print(f'create database query result:', result)
     my_postgres.db_connection_pool.closeall()
 
@@ -53,7 +53,7 @@ def test_create_insert_delete():
             value INTEGER)
         """
     result = my_postgres.execute_one_query(sql_query=sql_string)
-    assert result[2] == 'CREATE TABLE'
+    assert result.status_message == 'CREATE TABLE'
     print(f'create table query result:', result)
 
     result = my_postgres.insert_with_dict_returning(table_name=table_name,
@@ -61,7 +61,8 @@ def test_create_insert_delete():
                                                     )
 
     print(f'test returning insert:', result)
-    assert result[1:] == ('test_name', 123)
+    assert result.returning_row['name'] == 'test_name'
+    assert result.returning_row['value'] == 123
 
     my_postgres = PostgresConnectorPool()
 

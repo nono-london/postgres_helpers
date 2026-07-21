@@ -3,11 +3,16 @@
 .vscode
 
 # Virtual environments
-.venv
-venv
+.venv/
+venv/
+node_modules/
+
+# Deploy
+deploy/
 
 # Logs
 logs/
+*.log
 
 # Data files
 *.csv

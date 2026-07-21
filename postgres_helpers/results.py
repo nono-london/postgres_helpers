@@ -112,6 +112,7 @@ class InsertResult:
             print(f"Created user: {result.returning_row}")
     """
     rows_affected: int = 0
+    status_message: str = ""
     success: bool = True
     was_duplicate: bool = False
     returning_row: Optional[Dict[str, Any]] = None
@@ -147,6 +148,7 @@ class UpsertResult:
             print("Existing user updated")
     """
     rows_affected: int = 0
+    status_message: str = ""
     success: bool = True
     was_inserted: bool = False
     was_updated: bool = False

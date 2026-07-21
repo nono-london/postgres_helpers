@@ -681,6 +681,7 @@ class PostgresConnectorAsyncPool:
 
             return InsertResult(
                 rows_affected=rows_affected,
+                status_message=result,
                 success=True,
                 was_duplicate=(rows_affected == 0 and on_duplicate_ignore)
             )
@@ -850,6 +851,7 @@ class PostgresConnectorAsyncPool:
             # For a more accurate result, use insert_into_with_dict_update_returning
             return UpsertResult(
                 rows_affected=rows_affected,
+                status_message=result,
                 success=True,
                 was_inserted=(rows_affected > 0),  # Approximation
                 was_updated=False  # Can't determine without xmax

@@ -528,6 +528,7 @@ class PostgresConnectorAsync:
 
             return InsertResult(
                 rows_affected=rows_affected,
+                status_message=result,
                 success=True,
                 was_duplicate=(rows_affected == 0 and on_duplicate_ignore)
             )
@@ -654,6 +655,7 @@ class PostgresConnectorAsync:
 
             return UpsertResult(
                 rows_affected=rows_affected,
+                status_message=result,
                 success=True,
                 was_inserted=(rows_affected > 0),
                 was_updated=False
