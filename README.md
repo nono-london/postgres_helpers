@@ -5,11 +5,13 @@ PostgreSQL Connection Helper in Async, Sync and Pool modes.
 ## Installation
 
 ```bash
-pip install postgres_helpers
+pip install git+https://github.com/nono-london/postgres_helpers.git
 ```
 
 Or install from source:
 ```bash
+git clone https://github.com/nono-london/postgres_helpers.git
+cd postgres_helpers
 pip install -e .
 ```
 
