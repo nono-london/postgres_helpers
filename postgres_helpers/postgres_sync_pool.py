@@ -262,7 +262,10 @@ class PostgresConnectorPool:
             params: Optional[tuple] = None
     ) -> PostgresHelperError:
         """Convert psycopg2 exceptions to postgres_helpers exceptions."""
-        safe_query = query[:200] + "..." if query and len(query) > 200 else query
+        # query may be a psycopg2/asyncpg composable (e.g. sql.Composed), not a
+        # str — coerce before slicing so exception conversion never raises itself
+        query_text = query if query is None or isinstance(query, str) else str(query)
+        safe_query = query_text[:200] + "..." if query_text and len(query_text) > 200 else query_text
 
         if isinstance(ex, UniqueViolation):
             return UniqueViolationError(
