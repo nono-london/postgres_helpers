@@ -62,6 +62,7 @@ from postgres_helpers.exceptions import (
     CheckViolationError,
     TransactionError
 )
+from postgres_helpers.postgres_async import _insert_pages
 from postgres_helpers.results import (
     QueryResult,
     ExecuteManyResult,
@@ -461,6 +462,58 @@ class PostgresConnectorAsyncPool:
 
         except Exception as ex:
             logger.error(f"execute_many_query failed: {ex}")
+            raise self._convert_exception(ex, sql_query)
+
+    async def insert_many_by_batch(
+            self,
+            sql_query: str,
+            tuples: List[Tuple],
+            page_size: int = 10_000
+    ) -> ExecuteManyResult:
+        """
+        Bulk insert rows with multi-row INSERT ... VALUES (...), (...), ... statements.
+
+        Same query format as the sync connectors: a single ``VALUES %s`` marker,
+        expanded to ($1, $2), ($3, $4), ... for each page. All pages run in a
+        single transaction, so either every page is committed or none is.
+
+        PostgreSQL allows at most 32767 parameters per statement, so a page holds
+        at most min(page_size, 32767 // number_of_columns) rows.
+
+        Args:
+            sql_query: INSERT query with a single ``VALUES %s`` placeholder,
+                e.g. ``INSERT INTO logs (level, msg) VALUES %s``.
+            tuples: List of row tuples, one value per column.
+            page_size: Maximum number of rows per INSERT statement.
+
+        Returns:
+            ExecuteManyResult; rows_affected is the total across all pages
+            (rows skipped by ON CONFLICT DO NOTHING are not counted).
+
+        Example:
+            await db.insert_many_by_batch(
+                "INSERT INTO logs (level, message) VALUES %s",
+                [("INFO", "User logged in"), ("INFO", "User logged out")]
+            )
+        """
+        if not tuples:
+            return ExecuteManyResult(success=True, total_statements=0, rows_affected=0)
+
+        await self._create_pool_connection()
+
+        try:
+            async with self.db_connection_pool.acquire() as conn:
+                async with conn.transaction():
+                    rows_affected = await _insert_pages(conn, sql_query, tuples, page_size)
+
+            return ExecuteManyResult(
+                success=True,
+                total_statements=len(tuples),
+                rows_affected=rows_affected
+            )
+
+        except Exception as ex:
+            logger.error(f"insert_many_by_batch failed: {ex}")
             raise self._convert_exception(ex, sql_query)
 
     # =========================================================================

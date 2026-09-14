@@ -154,7 +154,7 @@ All connectors provide these methods:
 |--------|---------|-------------|
 | `execute_one_query()` | `QueryResult` | Execute INSERT/UPDATE/DELETE |
 | `execute_many_query()` | `ExecuteManyResult` | Batch execute |
-| `insert_many_by_batch()` | `ExecuteManyResult` | Bulk multi-row INSERT via `execute_values`, `VALUES %s` (sync connectors only) |
+| `insert_many_by_batch()` | `ExecuteManyResult` | Bulk multi-row INSERT; query uses one `VALUES %s` marker on every connector |
 | `fetch_all_as_dicts()` | `List[Dict]` | SELECT ? list of dicts |
 | `fetch_all_as_df()` | `DataFrame` | SELECT ? pandas DataFrame |
 | `fetch_one_as_dict()` | `Dict \| None` | Single row |

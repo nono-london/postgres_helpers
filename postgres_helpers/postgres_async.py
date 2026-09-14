@@ -56,6 +56,47 @@ from postgres_helpers.results import (
 
 logger = logging.getLogger(f"postgres_helpers:{Path(__file__).name}")
 
+# PostgreSQL's wire protocol caps a statement at this many bind parameters
+MAX_QUERY_ARGS = 32767
+
+
+def _values_placeholders(n_rows: int, n_cols: int) -> str:
+    """Build "($1, $2), ($3, $4), ..." for n_rows rows of n_cols values."""
+    return ", ".join(
+        "(" + ", ".join(f"${row * n_cols + col + 1}" for col in range(n_cols)) + ")"
+        for row in range(n_rows)
+    )
+
+
+async def _insert_pages(
+        conn: Connection,
+        sql_query: str,
+        tuples: List[Tuple],
+        page_size: int
+) -> int:
+    """
+    Expand sql_query's single ``VALUES %s`` marker into one multi-row INSERT
+    per page and return the total rows affected. The caller owns the transaction.
+    """
+    if sql_query.count("%s") != 1:
+        raise ValueError("sql_query must contain exactly one 'VALUES %s' placeholder")
+
+    n_cols = len(tuples[0])
+    rows_per_page = max(1, min(page_size, MAX_QUERY_ARGS // n_cols))
+
+    rows_affected = 0
+    query, query_rows = "", 0
+    for start in range(0, len(tuples), rows_per_page):
+        page = tuples[start:start + rows_per_page]
+        # only the last page can be shorter, so the query is built at most twice
+        if len(page) != query_rows:
+            query_rows = len(page)
+            query = sql_query.replace("%s", _values_placeholders(query_rows, n_cols))
+        status = await conn.execute(query, *[value for row in page for value in row])
+        rows_affected += int(status.split()[-1])
+
+    return rows_affected
+
 
 class PostgresConnectorAsync:
     """
@@ -353,6 +394,57 @@ class PostgresConnectorAsync:
 
         except Exception as ex:
             logger.error(f"execute_many_query failed: {ex}")
+            raise self._convert_exception(ex, sql_query)
+
+        finally:
+            if close_connection:
+                await self.close_connection()
+
+    async def insert_many_by_batch(
+            self,
+            sql_query: str,
+            tuples: List[Tuple],
+            page_size: int = 10_000,
+            close_connection: bool = False
+    ) -> ExecuteManyResult:
+        """
+        Bulk insert rows with multi-row INSERT ... VALUES (...), (...), ... statements.
+
+        Same query format as the sync connectors: a single ``VALUES %s`` marker,
+        expanded to ($1, $2), ($3, $4), ... for each page. All pages run in a
+        single transaction, so either every page is committed or none is.
+
+        PostgreSQL allows at most 32767 parameters per statement, so a page holds
+        at most min(page_size, 32767 // number_of_columns) rows.
+
+        Args:
+            sql_query: INSERT query with a single ``VALUES %s`` placeholder,
+                e.g. ``INSERT INTO logs (level, msg) VALUES %s``.
+            tuples: List of row tuples, one value per column.
+            page_size: Maximum number of rows per INSERT statement.
+            close_connection: If True, close connection after execution.
+
+        Returns:
+            ExecuteManyResult; rows_affected is the total across all pages
+            (rows skipped by ON CONFLICT DO NOTHING are not counted).
+        """
+        if not tuples:
+            return ExecuteManyResult(success=True, total_statements=0, rows_affected=0)
+
+        await self.open_connection()
+
+        try:
+            async with self.db_connection.transaction():
+                rows_affected = await _insert_pages(self.db_connection, sql_query, tuples, page_size)
+
+            return ExecuteManyResult(
+                success=True,
+                total_statements=len(tuples),
+                rows_affected=rows_affected
+            )
+
+        except Exception as ex:
+            logger.error(f"insert_many_by_batch failed: {ex}")
             raise self._convert_exception(ex, sql_query)
 
         finally:

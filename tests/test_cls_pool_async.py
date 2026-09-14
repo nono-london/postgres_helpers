@@ -144,6 +144,32 @@ async def test_execute_many_query():
         assert count == 5
 
 
+@pytest.mark.asyncio
+async def test_insert_many_by_batch():
+    """Test multi-row batched insert, rolled back as a whole on failure."""
+    table_name = "test_insert_many_by_batch_async"
+    async with PostgresConnectorAsyncPool() as db:
+        # regular table: a TEMP table is only visible to the pooled connection that created it
+        await db.execute_one_query(f"CREATE TABLE {table_name} (id INT PRIMARY KEY, name TEXT)")
+        try:
+            rows = [(i, f"name_{i}") for i in range(10)]
+            result = await db.insert_many_by_batch(
+                f"INSERT INTO {table_name} (id, name) VALUES %s", rows, page_size=3
+            )
+            assert isinstance(result, ExecuteManyResult)
+            assert result.rows_affected == 10
+            assert await db.fetch_value(f"SELECT COUNT(*) FROM {table_name}") == 10
+
+            rows = [(100, "ok"), (101, "ok"), (0, "duplicate")]
+            with pytest.raises(UniqueViolationError):
+                await db.insert_many_by_batch(
+                    f"INSERT INTO {table_name} (id, name) VALUES %s", rows, page_size=2
+                )
+            assert await db.fetch_value(f"SELECT COUNT(*) FROM {table_name}") == 10
+        finally:
+            await db.execute_one_query(f"DROP TABLE IF EXISTS {table_name}")
+
+
 # =============================================================================
 # Insert Methods Tests
 # =============================================================================
