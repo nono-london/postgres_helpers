@@ -37,7 +37,7 @@ from psycopg2.errors import (
     ForeignKeyViolation,
     CheckViolation
 )
-from psycopg2.extras import RealDictCursor
+from psycopg2.extras import RealDictCursor, execute_values
 from psycopg2.pool import SimpleConnectionPool
 
 from postgres_helpers.app_config import load_postgres_details_to_env
@@ -386,6 +386,68 @@ class PostgresConnectorPool:
 
         finally:
             cursor.close()
+            self.db_connection_pool.putconn(conn)
+
+    def insert_many_by_batch(
+            self,
+            sql_query: str,
+            tuples_list: List[tuple],
+            page_size: int = 10_000
+    ) -> ExecuteManyResult:
+        """
+        Bulk insert rows with multi-row INSERT ... VALUES (...), (...), ... statements.
+
+        Much faster than execute_many_query for large inserts: executemany sends
+        one statement per row, this sends one statement per page_size rows
+        (psycopg2.extras.execute_values). All pages run in a single transaction,
+        so either every page is committed or none is.
+
+        Args:
+            sql_query: INSERT query with a single ``VALUES %s`` placeholder,
+                e.g. ``INSERT INTO logs (level, msg) VALUES %s``.
+            tuples_list: List of row tuples, one value per column.
+            page_size: Maximum number of rows per INSERT statement.
+
+        Returns:
+            ExecuteManyResult; rows_affected is the total across all pages
+            (rows skipped by ON CONFLICT DO NOTHING are not counted).
+        """
+        if not tuples_list:
+            return ExecuteManyResult(success=True, total_statements=0, rows_affected=0)
+
+        self._create_pool_connection()
+        conn = self.db_connection_pool.getconn()
+        conn.autocommit = False
+
+        cursor = conn.cursor()
+
+        try:
+            rows_affected = 0
+            # page ourselves so rowcount can be summed; execute_values alone
+            # only reports the rowcount of its last page
+            for start in range(0, len(tuples_list), page_size):
+                page = tuples_list[start:start + page_size]
+                execute_values(cursor, sql_query, page, page_size=page_size)
+                rows_affected += cursor.rowcount
+
+            conn.commit()
+
+            return ExecuteManyResult(
+                success=True,
+                total_statements=len(tuples_list),
+                rows_affected=rows_affected
+            )
+
+        except Exception as ex:
+            if not conn.closed:
+                conn.rollback()
+            logger.error(f"insert_many_by_batch failed: {ex}")
+            raise self._convert_exception(ex, sql_query)
+
+        finally:
+            cursor.close()
+            if not conn.closed:
+                conn.autocommit = True
             self.db_connection_pool.putconn(conn)
 
     # =========================================================================

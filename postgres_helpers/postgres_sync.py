@@ -370,6 +370,72 @@ class PostgresConnector:
             if close_connection:
                 self.close_connection()
 
+    def insert_many_by_batch(
+            self,
+            sql_query: str,
+            tuples_list: List[tuple],
+            page_size: int = 10_000,
+            close_connection: bool = False
+    ) -> ExecuteManyResult:
+        """
+        Bulk insert rows with multi-row INSERT ... VALUES (...), (...), ... statements.
+
+        Much faster than execute_many_query for large inserts: executemany sends
+        one statement per row, this sends one statement per page_size rows
+        (psycopg2.extras.execute_values). All pages run in a single transaction,
+        so either every page is committed or none is.
+
+        Args:
+            sql_query: INSERT query with a single ``VALUES %s`` placeholder,
+                e.g. ``INSERT INTO logs (level, msg) VALUES %s``.
+            tuples_list: List of row tuples, one value per column.
+            page_size: Maximum number of rows per INSERT statement.
+            close_connection: If True, close connection after execution.
+
+        Returns:
+            ExecuteManyResult; rows_affected is the total across all pages
+            (rows skipped by ON CONFLICT DO NOTHING are not counted).
+        """
+        if not tuples_list:
+            return ExecuteManyResult(success=True, total_statements=0, rows_affected=0)
+
+        self.open_connection()
+
+        original_autocommit = self.db_connection.autocommit
+        self.db_connection.autocommit = False
+
+        cursor = self.db_connection.cursor()
+
+        try:
+            rows_affected = 0
+            # page ourselves so rowcount can be summed; execute_values alone
+            # only reports the rowcount of its last page
+            for start in range(0, len(tuples_list), page_size):
+                page = tuples_list[start:start + page_size]
+                psycopg2.extras.execute_values(cursor, sql_query, page, page_size=page_size)
+                rows_affected += cursor.rowcount
+
+            self.db_connection.commit()
+
+            return ExecuteManyResult(
+                success=True,
+                total_statements=len(tuples_list),
+                rows_affected=rows_affected
+            )
+
+        except Exception as ex:
+            if not self.db_connection.closed:
+                self.db_connection.rollback()
+            logger.error(f"insert_many_by_batch failed: {ex}")
+            raise self._convert_exception(ex, sql_query)
+
+        finally:
+            cursor.close()
+            if not self.db_connection.closed:
+                self.db_connection.autocommit = original_autocommit
+            if close_connection:
+                self.close_connection()
+
     # =========================================================================
     # Fetch Methods
     # =========================================================================

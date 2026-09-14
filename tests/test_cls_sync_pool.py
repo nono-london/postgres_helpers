@@ -1,5 +1,7 @@
+import pytest
 from dotenv import load_dotenv
 
+from postgres_helpers.exceptions import UniqueViolationError
 from postgres_helpers.postgres_sync_pool import PostgresConnectorPool
 
 
@@ -71,6 +73,30 @@ def test_create_insert_delete():
             """
     result = my_postgres.execute_one_query(sql_query=sql_string)
     print(f'drop database :', result)
+
+
+def test_insert_many_by_batch():
+    load_dotenv()
+    table_name = 'test_insert_many_by_batch'
+
+    my_postgres = PostgresConnectorPool()
+    my_postgres.execute_one_query(f"CREATE TABLE {table_name} (id INTEGER PRIMARY KEY, name TEXT)")
+    try:
+        rows = [(i, f"name_{i}") for i in range(10)]
+        result = my_postgres.insert_many_by_batch(
+            f"INSERT INTO {table_name} (id, name) VALUES %s", rows, page_size=3
+        )
+        assert result.rows_affected == 10
+        assert my_postgres.fetch_value(f"SELECT count(*) FROM {table_name}") == 10
+
+        # a failing page rolls back the pages already sent
+        rows = [(100, "ok"), (101, "ok"), (0, "duplicate")]
+        with pytest.raises(UniqueViolationError):
+            my_postgres.insert_many_by_batch(f"INSERT INTO {table_name} (id, name) VALUES %s", rows, page_size=2)
+        assert my_postgres.fetch_value(f"SELECT count(*) FROM {table_name}") == 10
+    finally:
+        my_postgres.execute_one_query(f"DROP TABLE IF EXISTS {table_name}")
+        my_postgres.close_pool()
 
 
 if __name__ == '__main__':
