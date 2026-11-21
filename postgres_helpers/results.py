@@ -5,7 +5,7 @@ These dataclasses provide consistent return types across all connector variants
 (sync, async, pool, non-pool).
 
 Usage:
-    from postgres_helpers.results import QueryResult, FetchResult
+    from postgres_helpers.results import QueryResult
 
     result = await db.execute_one_query("INSERT INTO ...")
     print(f"Affected {result.rows_affected} rows")
