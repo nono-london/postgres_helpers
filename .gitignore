@@ -1,6 +1,7 @@
 # IDE
 .idea
 .vscode
+.codex/
 
 # Virtual environments
 .venv/
@@ -36,3 +37,4 @@ __pycache__/
 # Coverage
 .coverage
 htmlcov/
+/.claude/
