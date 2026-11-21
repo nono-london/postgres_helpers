@@ -196,6 +196,24 @@ pip install -e ".[test]"
 pytest
 ```
 
+To build the CI Docker image and run the same tests locally:
+
+```bash
+bash .github/workflows/ci-postgresql/local-build.sh
+```
+
+This requires Docker with Buildx. Each run uses a dedicated builder and removes
+its container, image and build cache on exit, including after a test failure.
+Reports remain in `.github/ci-local/ci-postgresql/<run-id>/`, which Git ignores.
+If a run is forcibly terminated or cleanup fails, recover with:
+
+```bash
+bash .github/workflows/ci-postgresql/local-cleanup.sh <run-id>
+```
+
+Cleanup is safe to repeat and retains the reports. These local tools do not run
+as part of the GitHub-hosted workflow.
+
 ## Useful Git Commands
 
 Remove files from git repository (not the file system):

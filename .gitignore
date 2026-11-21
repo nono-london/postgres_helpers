@@ -3,6 +3,9 @@
 .vscode
 .codex/
 
+# Local CI records and reports
+/.github/ci-local/
+
 # Virtual environments
 .venv/
 venv/
