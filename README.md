@@ -167,6 +167,8 @@ All connectors provide these methods:
 | `table_exists()` | `bool` | Check table existence |
 | `transaction()` | context manager | Transaction support |
 
+`execute_one_query()` returns execution status and an affected-row count. Its `QueryResult.last_inserted_id` and `QueryResult.returning_row` fields remain `None`, even if the SQL includes `RETURNING`. To retrieve an inserted row and its ID, use `insert_with_dict_returning()`: it returns an `InsertResult` with `returning_row` and, when the returned row has a column named `id`, `last_inserted_id`.
+
 ## Placeholder Syntax
 
 **Important:** Async and sync connectors use different placeholder syntax:
