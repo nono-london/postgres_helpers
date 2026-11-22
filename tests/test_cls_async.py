@@ -61,3 +61,53 @@ async def test_insert_many_by_batch():
         assert result.rows_affected == 0
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("close_connection", [False, True])
+@pytest.mark.parametrize(
+    "populate_table, minimum_id, expected_rows",
+    [
+        pytest.param(False, 0, [], id="empty-table"),
+        pytest.param(True, 9, [], id="no-matching-rows"),
+        pytest.param(True, 0, [(1, "first")], id="populated-table"),
+    ],
+)
+async def test_dataframe_columns_for_empty_and_populated_results(
+    populate_table, minimum_id, expected_rows, close_connection
+):
+    async with PostgresConnectorAsync() as db:
+        await db.execute_one_query(
+            "CREATE TEMP TABLE dataframe_columns_test (id integer, label text)"
+        )
+        if populate_table:
+            await db.execute_one_query("INSERT INTO dataframe_columns_test VALUES (1, 'first')")
+
+        frame = await db.fetch_all_as_df(
+            "SELECT id AS identifier, label FROM pg_temp.dataframe_columns_test "
+            "WHERE id > $1 ORDER BY id",
+            (minimum_id,),
+            close_connection=close_connection,
+        )
+        assert list(frame.columns) == ["identifier", "label"]
+        assert frame.shape == (len(expected_rows), 2)
+        assert list(frame.itertuples(index=False, name=None)) == expected_rows
+        assert db.is_connected() == (not close_connection)
+        assert await db.fetch_value("SELECT 42") == 42
+    assert not db.is_connected()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("close_connection", [False, True])
+async def test_dataframe_missing_table_raises_query_error(close_connection):
+    async with PostgresConnectorAsync() as db:
+        await db.execute_one_query(
+            "CREATE TEMP TABLE dataframe_columns_test (id integer, label text)"
+        )
+        with pytest.raises(QueryExecutionError) as error:
+            await db.fetch_all_as_df(
+                "SELECT * FROM pg_temp.dataframe_columns_missing",
+                close_connection=close_connection,
+            )
+        assert error.value.original_error.sqlstate == "42P01"
+        assert db.is_connected() == (not close_connection)
+        assert await db.fetch_value("SELECT 42") == 42
+    assert not db.is_connected()
