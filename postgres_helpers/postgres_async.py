@@ -504,14 +504,23 @@ class PostgresConnectorAsync:
             close_connection: If True, close connection after execution.
 
         Returns:
-            DataFrame with columns matching the query result.
+            DataFrame with query column names, including when no rows match.
         """
-        results = await self.fetch_all_as_dicts(
-            sql_query=sql_query,
-            sql_variables=sql_variables,
-            close_connection=close_connection
-        )
-        return pd.DataFrame(results) if results else pd.DataFrame()
+        await self.open_connection()
+
+        try:
+            statement = await self.db_connection.prepare(sql_query)
+            columns = [attribute.name for attribute in statement.get_attributes()]
+            rows = await statement.fetch(*(sql_variables if sql_variables else ()))
+            return pd.DataFrame([tuple(row) for row in rows], columns=columns)
+
+        except Exception as ex:
+            logger.error(f"fetch_all_as_df failed: {ex}")
+            raise self._convert_exception(ex, sql_query, sql_variables)
+
+        finally:
+            if close_connection:
+                await self.close_connection()
 
     async def fetch_one_as_dict(
             self,
