@@ -1,4 +1,5 @@
 import pytest
+from psycopg2.extras import RealDictCursor
 from dotenv import load_dotenv
 
 from postgres_helpers.exceptions import QueryExecutionError, UniqueViolationError
@@ -143,6 +144,62 @@ def test_dataframe_missing_table_raises_query_error():
         assert db.is_pool_active()
         assert db.fetch_value("SELECT 42") == 42
     assert not db.is_pool_active()
+
+
+
+def test_upsert_returning_insert_and_update_flags():
+    with PostgresConnectorPool(pool_size_min=1, pool_size_max=1) as db:
+        db.execute_one_query(
+            "CREATE TEMP TABLE upsert_flags_test (id integer PRIMARY KEY, name text)"
+        )
+        inserted = db.insert_into_with_dict_update_returning(
+            "upsert_flags_test", {"id": 1, "name": "first"}
+        )
+        assert inserted.success and inserted.rows_affected == 1
+        assert inserted.returning_row == {"id": 1, "name": "first"}
+        assert inserted.was_inserted is True
+        assert inserted.was_updated is False
+
+        updated = db.insert_into_with_dict_update_returning(
+            "upsert_flags_test", {"id": 1, "name": "updated"}
+        )
+        assert updated.success and updated.rows_affected == 1
+        assert updated.returning_row == {"id": 1, "name": "updated"}
+        assert updated.was_inserted is False
+        assert updated.was_updated is True
+        assert db.fetch_value("SELECT count(*) FROM pg_temp.upsert_flags_test") == 1
+        assert db.fetch_value("SELECT name FROM pg_temp.upsert_flags_test") == "updated"
+
+
+@pytest.mark.parametrize(
+    "invalid_xmax",
+    [
+        pytest.param(None, id="missing-value"),
+        pytest.param("invalid", id="invalid-text"),
+        pytest.param(float("inf"), id="overflow"),
+    ],
+)
+def test_upsert_returning_invalid_xmax_preserves_row(monkeypatch, caplog, invalid_xmax):
+    class InvalidXmaxCursor(RealDictCursor):
+        def fetchone(self):
+            row = super().fetchone()
+            row["xmax"] = invalid_xmax
+            return row
+
+    monkeypatch.setattr("postgres_helpers.postgres_sync_pool.RealDictCursor", InvalidXmaxCursor)
+    with PostgresConnectorPool(pool_size_min=1, pool_size_max=1) as db:
+        db.execute_one_query(
+            "CREATE TEMP TABLE upsert_flags_test (id integer PRIMARY KEY, name text)"
+        )
+        result = db.insert_into_with_dict_update_returning(
+            "upsert_flags_test", {"id": 1, "name": "first"}
+        )
+        assert result.success and result.rows_affected == 1
+        assert result.returning_row == {"id": 1, "name": "first"}
+        assert result.was_inserted is False
+        assert result.was_updated is False
+        assert "invalid xmax" in caplog.text
+        assert db.fetch_value("SELECT name FROM pg_temp.upsert_flags_test") == "first"
 
 
 if __name__ == '__main__':

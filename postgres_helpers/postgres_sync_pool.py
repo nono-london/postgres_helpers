@@ -774,7 +774,7 @@ class PostgresConnectorPool:
             constraint_key: Optional[str] = None
     ) -> UpsertResult:
         """
-        Upsert a row and return the result with accurate insert/update detection.
+        Upsert a row and return the row with insert/update detection.
 
         Args:
             table_name: Name of the table.
@@ -782,7 +782,9 @@ class PostgresConnectorPool:
             constraint_key: Name of the unique constraint.
 
         Returns:
-            UpsertResult with accurate was_inserted/was_updated flags.
+            UpsertResult with the returned row and insert/update flags.
+            If xmax cannot be converted to an integer, both flags are False
+            and a warning is logged.
         """
         placeholder = ", ".join(["%s"] * len(parameters_dict))
         columns = '"' + '","'.join(parameters_dict.keys()) + '"'
@@ -816,14 +818,20 @@ class PostgresConnectorPool:
 
             if row:
                 row_dict = dict(row)
-                xmax = row_dict.pop('xmax', 0)
+                try:
+                    xmax = int(row_dict.pop('xmax', None))
+                except (TypeError, ValueError, OverflowError):
+                    xmax = None
+                    logger.warning(
+                        "Could not determine whether the upsert inserted or updated: invalid xmax"
+                    )
 
                 return UpsertResult(
                     rows_affected=1,
                     status_message=status,
                     success=True,
                     was_inserted=(xmax == 0),
-                    was_updated=(xmax > 0),
+                    was_updated=(xmax is not None and xmax > 0),
                     returning_row=row_dict
                 )
             else:
