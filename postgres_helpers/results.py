@@ -5,7 +5,7 @@ These dataclasses provide consistent return types across all connector variants
 (sync, async, pool, non-pool).
 
 Usage:
-    from postgres_helpers.results import QueryResult, FetchResult
+    from postgres_helpers.results import QueryResult
 
     result = await db.execute_one_query("INSERT INTO ...")
     print(f"Affected {result.rows_affected} rows")
@@ -19,26 +19,27 @@ from typing import Optional, Any, List, Dict
 @dataclass
 class QueryResult:
     """
-    Standardized result for write operations (INSERT, UPDATE, DELETE, etc.).
+    Standardised execution result returned by execute_one_query().
 
-    This replaces the inconsistent tuple returns across different connectors.
+    All four connectors populate the affected-row count, status and success
+    fields only. Adding RETURNING to the SQL does not populate returned data.
+    Use insert_with_dict_returning() for an inserted row and its ID; that
+    method returns InsertResult rather than QueryResult.
 
     Attributes:
         rows_affected: Number of rows affected by the query.
-                      Returns -1 if the count couldn't be determined.
+                      Returns -1 if the count could not be determined.
         status_message: PostgreSQL status message (e.g., "INSERT 0 1", "UPDATE 5").
-        last_inserted_id: The ID of the last inserted row (if RETURNING id was used
-                         or if return_last_inserted_id=True).
-        returning_row: Full row data if RETURNING * or RETURNING columns was used.
+        last_inserted_id: Not populated by execute_one_query(); remains None.
+        returning_row: Not populated by execute_one_query(); remains None.
         success: True if the query executed without errors.
 
     Example:
         result = await db.execute_one_query(
-            "INSERT INTO users (name) VALUES ($1) RETURNING id",
+            "INSERT INTO users (name) VALUES ($1)",
             ("John",)
         )
-        if result.success:
-            print(f"Created user with ID: {result.last_inserted_id}")
+        print(f"Rows affected: {result.rows_affected}")
         print(f"Status: {result.status_message}")  # "INSERT 0 1"
     """
     rows_affected: int = 0
