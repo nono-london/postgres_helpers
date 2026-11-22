@@ -576,8 +576,7 @@ class PostgresConnectorAsyncPool:
             sql_variables: Query parameters as a tuple.
 
         Returns:
-            DataFrame with columns matching the query result.
-            Returns empty DataFrame if no rows found.
+            DataFrame with query column names, including when no rows match.
 
         Raises:
             PoolError: If pool creation fails.
@@ -590,12 +589,18 @@ class PostgresConnectorAsyncPool:
             )
             total = df['amount'].sum()
         """
-        results = await self.fetch_all_as_dicts(
-            sql_query=sql_query,
-            sql_variables=sql_variables
-        )
+        await self._create_pool_connection()
 
-        return pd.DataFrame(results) if results else pd.DataFrame()
+        try:
+            async with self.db_connection_pool.acquire() as conn:
+                statement = await conn.prepare(sql_query)
+                columns = [attribute.name for attribute in statement.get_attributes()]
+                rows = await statement.fetch(*(sql_variables if sql_variables else ()))
+                return pd.DataFrame([tuple(row) for row in rows], columns=columns)
+
+        except Exception as ex:
+            logger.error(f"fetch_all_as_df failed: {ex}")
+            raise self._convert_exception(ex, sql_query, sql_variables)
 
     async def fetch_one_as_dict(
             self,

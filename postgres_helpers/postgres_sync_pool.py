@@ -500,13 +500,24 @@ class PostgresConnectorPool:
             sql_variables: Query parameters as a tuple.
 
         Returns:
-            DataFrame with columns matching the query result.
+            DataFrame with query column names, including when no rows match.
         """
-        results = self.fetch_all_as_dicts(
-            sql_query=sql_query,
-            sql_variables=sql_variables
-        )
-        return pd.DataFrame(results) if results else pd.DataFrame()
+        self._create_pool_connection()
+        conn = self.db_connection_pool.getconn()
+        cursor = conn.cursor()
+
+        try:
+            cursor.execute(sql_query, sql_variables)
+            columns = [column.name for column in cursor.description]
+            return pd.DataFrame(cursor.fetchall(), columns=columns)
+
+        except Exception as ex:
+            logger.error(f"fetch_all_as_df failed: {ex}")
+            raise self._convert_exception(ex, sql_query, sql_variables)
+
+        finally:
+            cursor.close()
+            self.db_connection_pool.putconn(conn)
 
     def fetch_one_as_dict(
             self,
